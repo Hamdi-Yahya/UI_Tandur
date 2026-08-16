@@ -267,30 +267,30 @@ class TerraceMapPainter extends CustomPainter {
         Paint()..color = AppColors.daun,
       );
       
-      // Draw character placeholder
-      final charPainter = TextPainter(
-        text: const TextSpan(
-          text: '[ILLUSTRATION_PLACEHOLDER]',
-          style: TextStyle(fontSize: 10, color: AppColors.daun),
+      // Karakter pengguna berdiri di Petak yang sedang dikerjakan (DESAIN.md
+      // §4.2). Belum ada aset karakter final, jadi dipakai penanda pin bulat
+      // -- bukan lagi teks debug mentah di atas kanvas produksi.
+      final markerCenter = Offset(center.dx + 40, center.dy - 30);
+      canvas.drawCircle(markerCenter, 14, Paint()..color = AppColors.kertas);
+      canvas.drawCircle(
+        markerCenter,
+        14,
+        Paint()
+          ..color = AppColors.daun
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+      final personPainter = TextPainter(
+        text: TextSpan(
+          text: String.fromCharCode(Icons.person.codePoint),
+          style: TextStyle(fontSize: 16, fontFamily: Icons.person.fontFamily, color: AppColors.daun),
         ),
         textDirection: TextDirection.ltr,
       );
-      charPainter.layout();
-      
-      // Draw background for placeholder
-      final bgRect = Rect.fromCenter(
-        center: Offset(center.dx + 40, center.dy - 30),
-        width: 100,
-        height: 30,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(bgRect, const Radius.circular(15)),
-        Paint()..color = AppColors.kertas.withValues(alpha: 0.9),
-      );
-      
-      charPainter.paint(
-        canvas, 
-        Offset(center.dx + 40 - charPainter.width/2, center.dy - 30 - charPainter.height/2),
+      personPainter.layout();
+      personPainter.paint(
+        canvas,
+        Offset(markerCenter.dx - personPainter.width / 2, markerCenter.dy - personPainter.height / 2),
       );
     }
   }

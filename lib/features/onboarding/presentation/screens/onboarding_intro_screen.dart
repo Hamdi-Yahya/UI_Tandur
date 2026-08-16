@@ -74,9 +74,10 @@ class _OnboardingIntroScreenState extends State<OnboardingIntroScreen>
         itemBuilder: (context, index) {
           final page = _pages[index];
           return OnboardingScaffold(
-            illustration: OnboardingIllustrationPlaceholder(
+            illustration: OnboardingIllustration(
+              imagePath: page.imagePath,
               label: page.illustrationLabel,
-              color: page.illustrationColor,
+              fallbackColor: page.illustrationColor,
             ),
             title: page.title,
             subtitle: page.subtitle,

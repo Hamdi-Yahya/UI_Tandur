@@ -2,12 +2,69 @@
 
 | | |
 |---|---|
-| **Versi** | 3.0 |
+| **Versi** | 3.1 |
+| **Perubahan 3.1** | Lihat blok "Ringkasan Perubahan 3.1" tepat di bawah tabel ini. Semua baris yang berubah diberi penanda `[UBAH v3.1]` |
 | **Base URL** | `https://api.tandur.id` |
 | **Prefix** | Semua endpoint diawali `/api` |
 | **Format** | JSON, `camelCase` |
 | **Auth** | `Authorization: Bearer <accessToken>` |
 | **Dokumen terkait** | `PRD.md`, `DESAIN.md` |
+
+---
+
+## Ringkasan Perubahan 3.1
+
+Ditulis 14 Agustus 2026 setelah model Cabai v1.0.0 selesai dilatih dan diukur. **Baca blok ini saja, tidak perlu membaca ulang seluruh dokumen.** Setiap baris yang berubah di bawah diberi penanda `[UBAH v3.1]` sehingga bisa dicari dengan Ctrl+F.
+
+Dasar seluruh perubahan ada di `PRD.md` bagian **7.3.1**, yang berisi angka hasil pengukurannya.
+
+**A. Daftar label model dipangkas dari 10 menjadi 3.** Berlaku untuk Cabai.
+
+```
+sebelum : SEHAT, ANTRAKNOSA, BERCAK_DAUN_CERCOSPORA, LAYU_FUSARIUM, KUTU_KEBUL,
+          TRIPS, VIRUS_KUNING_KERITING, DEFISIENSI_N, DEFISIENSI_K, TIDAK_TERIDENTIFIKASI
+sesudah : BERCAK_DAUN, SEHAT, VIRUS_KUNING_KERITING
+```
+
+Alasannya: dari 6 dataset cabai yang disurvei, hanya satu yang layak, dan isinya 3 kelas. Tujuh label sisanya tidak punya data sama sekali sehingga tidak mungkin dilatih. **Urutan abjad di atas adalah kontrak** — TFLite mengembalikan indeks, bukan nama, jadi urutan yang berbeda di klien membuat hasilnya tertukar tanpa memunculkan galat apa pun.
+
+**B. `ANTRAKNOSA` dihapus dari seluruh alur pindai.** Gejalanya ada di buah sedangkan semua dataset layak adalah penyakit daun. Dua dataset antraknosa sudah diuji dan ditolak, alasannya tercatat di `PRD.md` bagian 7.3.
+
+> **Antraknosa tetap boleh muncul di materi Kelas Tandur, di basis pengetahuan RAG, dan di jawaban asisten.** Penyakitnya nyata dan penting bagi petani cabai. Yang tidak bisa hanya **mendeteksinya dari foto**. Karena itu contoh di bagian 3 dan dokumen basis pengetahuan di bagian 7 sengaja **tidak** diubah. Yang diubah hanya contoh di bagian 4, karena di sana `ANTRAKNOSA` dipakai sebagai label keluaran model — dan label itu tidak ada.
+
+**C. Kuantisasi INT8 diganti FLOAT16.** INT8 penuh sudah diuji dan menjatuhkan akurasi dari 90,2 ke 59,0 persen. Lebih berbahaya lagi, model INT8 memvonis `SEHAT` sebanyak 30 kali padahal kebenarannya hanya 14, artinya banyak daun sakit dinyatakan sehat. FLOAT16 berukuran 6,00 MB, masih di bawah anggaran 8 MB, dan tidak kehilangan akurasi sama sekali.
+
+**D. Ambang keyakinan naik, dan sekarang tidak simetris.**
+
+```
+umum          : 0.60  ->  0.70
+vonis SEHAT   :   -   ->  0.85   (field baru: healthyConfidenceThreshold)
+```
+
+Ambang `SEHAT` sengaja dibuat lebih ketat karena akibat dua jenis kesalahan tidak setara. Salah menyatakan sakit padahal sehat hanya membuat pengguna memotret ulang. Salah menyatakan sehat padahal sakit membuat pengguna kehilangan satu musim.
+
+**E. Aturan "tiga dugaan teratas" diganti.** Menjadi: **tampilkan setiap dugaan dengan keyakinan di atas 0,10, maksimal tiga.** Dengan model 3 kelas, "tiga teratas" berarti menampilkan seluruh isi model dan tidak menyampaikan informasi apa pun.
+
+**F. Field baru di manifest: `inputDtype`.** Nilainya `"float32"`, konsekuensi dari pindah ke FLOAT16. Klien mengirim piksel mentah 0 sampai 255 sebagai `float32`. Normalisasi tetap berada di dalam model, klien tidak perlu melakukannya. Ini satu baris berbeda di Flutter, tetapi kalau terlewat hasilnya ngawur tanpa galat.
+
+### Daftar baris yang berubah
+
+| Bagian | Endpoint | Yang berubah |
+|---|---|---|
+| 4.1 | Get My Plants, Get Plant Detail | contoh `lastDiagnosis` dan `patterns.label` |
+| 4.2 | **Get Model Manifest** | **kontrak sesungguhnya**: `version`, `fileUrl`, `bytes`, `quantization`, `labels`, `confidenceThreshold`, `healthyConfidenceThreshold`, `inputDtype` |
+| 4.2 | Save Scan, Save Low Confidence Scan | label contoh, aturan ambang, aturan jumlah dugaan |
+| 4.2 | Get Scan, Get Scan Timeline, Flag Wrong Result | label contoh |
+| 4.3 | Start Discussion | `context.diagnosis` |
+| 7 | Scan Flag Queue, Model Metrics, Publish Model Version | label contoh dan field ambang |
+
+### Yang belum bisa diselesaikan di dokumen ini
+
+Tiga hal berikut ada di sisi backend, bukan di dokumen ini, dan masih menunggu:
+
+1. **`RagChunk` belum punya kolom `page`.** Format sitasi di bagian 4.3 mensyaratkan `{title, publisher, year, page, url}`. Title, publisher, year, dan url bisa diambil dari join ke `RagDocument`, tetapi `page` tidak ada sumbernya sehingga setiap sitasi keluar `page: null`. Perlu `ALTER TABLE "RagChunk" ADD COLUMN "page" INTEGER, ADD COLUMN "heading" TEXT;`
+2. **Payload `/internal/rag/answer` belum membawa riwayat percakapan.** Akibatnya pertanyaan lanjutan seperti "berapa lama sampai pulih?" kehilangan konteks, padahal `suggestedPrompts` kita sendiri yang memancing pertanyaan seperti itu. Perlu tambahan `history` berisi enam pesan terakhir.
+3. **Konteks cuaca 7 hari sudah dicoret dari PRD** karena tidak pernah punya sumber data. Bagian 4.3 tidak menyebutnya, jadi tidak ada yang perlu diubah di sini, hanya perlu diketahui agar tidak ditambahkan kembali.
 
 ---
 
@@ -158,8 +215,8 @@ GET /api/community/questions?limit=20&cursor=2026-08-11T03:00:00Z
 | Name | Method | URL | Auth | Request Param | Success Response | Failed Response |
 |---|---|---|---|---|---|---|
 | Create Plant | POST | `/api/plants` | YES | `{"commodity":"CABAI","nickname":"Cabai Depan Rumah","unitCount":30,"unitType":"POLYBAG","plantedAt":"2026-06-30","variety":"Rawit Setan"}` | `{"msg":"Tanaman didaftarkan","data":{"plantId":"uuid","nickname":"Cabai Depan Rumah","commodity":"CABAI","daysAfterPlanting":42,"phase":"BERBUNGA","status":"ACTIVE"}}` | `{"msg":{"plantedAt":["Tanggal tanam tidak boleh di masa depan."],"unitCount":["Jumlah minimal 1."]}}` |
-| Get My Plants | GET | `/api/plants` | YES | `?status=ACTIVE` | `{"msg":"Tanaman saya","data":[{"plantId":"uuid","nickname":"Cabai Depan Rumah","commodity":"CABAI","daysAfterPlanting":42,"phase":"BERBUNGA","unitCount":30,"unitType":"POLYBAG","lastScanAt":"2026-08-11T06:12:00Z","lastDiagnosis":"ANTRAKNOSA","scanCount":4,"status":"ACTIVE"}]}` | `{"msg":"Token tidak valid."}` |
-| Get Plant Detail | GET | `/api/plants/:id` | YES | `id` | `{"msg":"Tanaman ditemukan","data":{"plantId":"uuid","nickname":"Cabai Depan Rumah","commodity":"CABAI","variety":"Rawit Setan","plantedAt":"2026-06-30","daysAfterPlanting":42,"phase":"BERBUNGA","unitCount":30,"unitType":"POLYBAG","status":"ACTIVE","patterns":[{"type":"REPEATED_DIAGNOSIS","label":"ANTRAKNOSA","occurrences":2,"withinDays":14,"note":"Muncul dua kali dalam dua minggu"}]}}` | `{"msg":"Tanaman tidak ditemukan."}` |
+| Get My Plants `[UBAH v3.1]` | GET | `/api/plants` | YES | `?status=ACTIVE` | `{"msg":"Tanaman saya","data":[{"plantId":"uuid","nickname":"Cabai Depan Rumah","commodity":"CABAI","daysAfterPlanting":42,"phase":"BERBUNGA","unitCount":30,"unitType":"POLYBAG","lastScanAt":"2026-08-11T06:12:00Z","lastDiagnosis":"VIRUS_KUNING_KERITING","scanCount":4,"status":"ACTIVE"}]}` | `{"msg":"Token tidak valid."}` |
+| Get Plant Detail `[UBAH v3.1]` | GET | `/api/plants/:id` | YES | `id` | `{"msg":"Tanaman ditemukan","data":{"plantId":"uuid","nickname":"Cabai Depan Rumah","commodity":"CABAI","variety":"Rawit Setan","plantedAt":"2026-06-30","daysAfterPlanting":42,"phase":"BERBUNGA","unitCount":30,"unitType":"POLYBAG","status":"ACTIVE","patterns":[{"type":"REPEATED_DIAGNOSIS","label":"VIRUS_KUNING_KERITING","occurrences":2,"withinDays":14,"note":"Muncul dua kali dalam dua minggu"}]}}` | `{"msg":"Tanaman tidak ditemukan."}` |
 | Update Plant | PATCH | `/api/plants/:id` | YES | `{"nickname":"Cabai Pekarangan","unitCount":28}` | `{"msg":"Tanaman diperbarui","data":{"plantId":"uuid","nickname":"Cabai Pekarangan"}}` | `{"msg":"Tanaman tidak ditemukan."}` |
 | End Plant | POST | `/api/plants/:id/end` | YES | `{"status":"HARVESTED","note":"Panen 3,2 kg total","endedAt":"2026-09-28"}` | `{"msg":"Tanaman ditutup","data":{"plantId":"uuid","status":"HARVESTED","totalDays":90,"scanCount":11,"xpEarned":500}}` | `{"msg":"Tanaman sudah ditutup sebelumnya."}` |
 | Delete Plant | DELETE | `/api/plants/:id` | YES | - | `{"msg":"Tanaman dan seluruh riwayat pindainya dihapus."}` | `{"msg":"Tanaman tidak ditemukan."}` |
@@ -168,16 +225,27 @@ GET /api/community/questions?limit=20&cursor=2026-08-11T03:00:00Z
 
 Klasifikasi dijalankan **di perangkat** dengan model TFLite. Endpoint di bawah menyimpan hasilnya, bukan menjalankan inferensinya. Endpoint `classify` hanya dipakai sebagai cadangan untuk perangkat yang gagal memuat model.
 
+**Aturan wajib untuk seluruh bagian ini `[UBAH v3.1]`:**
+
+| Aturan | Nilai |
+|---|---|
+| Urutan `labels` | **Kontrak.** TFLite mengembalikan indeks, bukan nama. Urutan yang berbeda di klien membuat hasil tertukar diam-diam tanpa galat. Untuk Cabai: `["BERCAK_DAUN","SEHAT","VIRUS_KUNING_KERITING"]`, urut abjad |
+| Jumlah dugaan yang ditampilkan | Setiap dugaan dengan keyakinan **di atas 0,10**, maksimal tiga. Bukan lagi "selalu tiga teratas" |
+| Ambang "belum yakin" | **0,70** untuk umum |
+| Ambang khusus vonis `SEHAT` | **0,85.** Lebih ketat dengan sengaja: salah menyatakan sehat padahal sakit membuat pengguna kehilangan satu musim, sedangkan salah menyatakan sakit padahal sehat hanya membuat pengguna memotret ulang |
+| Masukan model | `float32`, piksel mentah 0 sampai 255, 224 x 224. Normalisasi sudah di dalam model, klien tidak melakukannya |
+| Penyakit di luar daftar label | Dinyatakan apa adanya sebagai belum didukung. **Jangan** dipaksakan ke label terdekat. Antraknosa termasuk di sini |
+
 | Name | Method | URL | Auth | Request Param | Success Response | Failed Response |
 |---|---|---|---|---|---|---|
-| Get Model Manifest | GET | `/api/vision/model` | YES | `?commodity=CABAI` | `{"msg":"Manifest model","data":{"commodity":"CABAI","version":"1.3.0","fileUrl":"https://cdn.tandur.id/ml/cabai_v130_int8.tflite","sha256":"9f2c...","bytes":5980000,"inputSize":224,"quantization":"INT8","labels":["SEHAT","ANTRAKNOSA","BERCAK_DAUN_CERCOSPORA","LAYU_FUSARIUM","KUTU_KEBUL","TRIPS","VIRUS_KUNING_KERITING","DEFISIENSI_N","DEFISIENSI_K","TIDAK_TERIDENTIFIKASI"],"confidenceThreshold":0.60,"releasedAt":"2026-08-05T00:00:00Z"}}` | `{"msg":"Model untuk komoditas ini belum tersedia."}` |
+| **Get Model Manifest** `[UBAH v3.1]` | GET | `/api/vision/model` | YES | `?commodity=CABAI` | `{"msg":"Manifest model","data":{"commodity":"CABAI","version":"1.0.0","fileUrl":"https://cdn.tandur.id/ml/cabai_v100_fp16.tflite","sha256":"9f2c...","bytes":6000000,"inputSize":224,"inputDtype":"float32","quantization":"FLOAT16","labels":["BERCAK_DAUN","SEHAT","VIRUS_KUNING_KERITING"],"confidenceThreshold":0.70,"healthyConfidenceThreshold":0.85,"releasedAt":"2026-08-14T00:00:00Z"}}` | `{"msg":"Model untuk komoditas ini belum tersedia."}` |
 | Get Upload URL | POST | `/api/uploads/signed-url` | YES | `{"purpose":"SCAN","contentType":"image/webp","sizeBytes":186420}` | `{"msg":"URL unggah dibuat","data":{"uploadUrl":"https://xxx.supabase.co/storage/v1/object/upload/...","fileUrl":"https://cdn.tandur.id/scan/abc.webp","expiresIn":3600}}` | `{"msg":"Ukuran file maksimal 5 MB."}` |
-| Save Scan | POST | `/api/scans` | YES | `{"plantId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","modelVersion":"1.3.0","inferenceMs":840,"predictions":[{"label":"ANTRAKNOSA","confidence":0.72},{"label":"BERCAK_DAUN_CERCOSPORA","confidence":0.18},{"label":"SEHAT","confidence":0.07}],"capturedAt":"2026-08-11T06:12:00Z"}` | `{"msg":"Hasil tersimpan","data":{"scanId":"uuid","status":"DONE","plantId":"uuid","daysAfterPlanting":42,"primary":{"label":"ANTRAKNOSA","displayName":"Antraknosa","alias":"patek","confidence":0.72,"summary":"Bercak cekung kecokelatan di buah, tepinya lebih gelap."},"alternatives":[{"label":"BERCAK_DAUN_CERCOSPORA","displayName":"Bercak Daun Cercospora","confidence":0.18}],"canDiscuss":true,"suggestedPrompts":["Ini bahaya nggak?","Bisa menular ke tanaman lain?","Berapa lama sampai pulih?"],"disclaimer":"Ini dugaan awal dari foto, bukan pemeriksaan langsung."}}` | `{"msg":{"predictions":["Minimal satu prediksi wajib dikirim."]}}` |
-| Save Low Confidence Scan | POST | `/api/scans` | YES | `{"plantId":"uuid","imageUrl":"...","modelVersion":"1.3.0","predictions":[{"label":"ANTRAKNOSA","confidence":0.41}]}` | `{"msg":"Keyakinan rendah","data":{"scanId":"uuid","status":"LOW_CONFIDENCE","primary":null,"guidance":{"title":"Fotonya belum cukup jelas","tips":["Satu helai daun saja","Latar polos, misalnya kertas","Cahaya dari samping, jangan melawan matahari"]},"canDiscuss":true}}` | `{"msg":"Tanaman tidak ditemukan."}` |
+| **Save Scan** `[UBAH v3.1]` | POST | `/api/scans` | YES | `{"plantId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","modelVersion":"1.3.0","inferenceMs":840,"predictions":[{"label":"VIRUS_KUNING_KERITING","confidence":0.72},{"label":"BERCAK_DAUN","confidence":0.18},{"label":"SEHAT","confidence":0.07}],"capturedAt":"2026-08-11T06:12:00Z"}` | `{"msg":"Hasil tersimpan","data":{"scanId":"uuid","status":"DONE","plantId":"uuid","daysAfterPlanting":42,"primary":{"label":"VIRUS_KUNING_KERITING","displayName":"Virus Kuning Keriting","alias":"bule","confidence":0.72,"summary":"Daun menguning belang mengikuti tulang daun dan menggulung ke atas."},"alternatives":[{"label":"BERCAK_DAUN","displayName":"Bercak Daun","confidence":0.18}],"canDiscuss":true,"suggestedPrompts":["Ini bahaya nggak?","Bisa menular ke tanaman lain?","Berapa lama sampai pulih?"],"disclaimer":"Ini dugaan awal dari foto, bukan pemeriksaan langsung."}}` | `{"msg":{"predictions":["Minimal satu prediksi wajib dikirim."]}}` |
+| Save Low Confidence Scan `[UBAH v3.1]` | POST | `/api/scans` | YES | `{"plantId":"uuid","imageUrl":"...","modelVersion":"1.3.0","predictions":[{"label":"VIRUS_KUNING_KERITING","confidence":0.41}]}` | `{"msg":"Keyakinan rendah","data":{"scanId":"uuid","status":"LOW_CONFIDENCE","primary":null,"guidance":{"title":"Fotonya belum cukup jelas","tips":["Satu helai daun saja","Latar polos, misalnya kertas","Cahaya dari samping, jangan melawan matahari"]},"canDiscuss":true}}` | `{"msg":"Tanaman tidak ditemukan."}` |
 | Classify Fallback | POST | `/api/vision/classify` | YES | `{"commodity":"CABAI","imageUrl":"https://cdn.tandur.id/scan/abc.webp"}` | **202** `{"msg":"Sedang diproses","data":{"jobId":"uuid","estimatedSeconds":4}}` | `{"msg":"Kuota harian habis (15/15). Coba lagi besok."}` |
-| Get Scan | GET | `/api/scans/:id` | YES | `id` | `{"msg":"Hasil pindai","data":{"scanId":"uuid","plantId":"uuid","plantNickname":"Cabai Depan Rumah","imageUrl":"https://cdn.tandur.id/scan/abc.webp","daysAfterPlanting":42,"status":"DONE","primary":{"label":"ANTRAKNOSA","confidence":0.72},"alternatives":[],"hasDiscussion":true,"discussionId":"uuid","createdAt":"2026-08-11T06:12:00Z"}}` | `{"msg":"Pindai tidak ditemukan."}` |
-| Get Scan Timeline | GET | `/api/plants/:id/scans` | YES | `?limit=20&cursor=` | `{"msg":"Linimasa","data":{"plantId":"uuid","items":[{"scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","daysAfterPlanting":42,"label":"ANTRAKNOSA","displayName":"Antraknosa","confidence":0.72,"flag":"REPEATED","createdAt":"2026-08-11T06:12:00Z"},{"scanId":"uuid","daysAfterPlanting":35,"label":"SEHAT","confidence":0.88,"flag":null,"createdAt":"2026-08-04T06:30:00Z"}],"nextCursor":null}}` | `{"msg":"Tanaman tidak ditemukan."}` |
-| Flag Wrong Result | POST | `/api/scans/:id/flag` | YES | `{"reason":"WRONG_LABEL","userGuess":"DEFISIENSI_K","note":"Menurut saya ini kekurangan kalium"}` | `{"msg":"Terima kasih. Laporan ini membantu kami memperbaiki model.","data":{"flagId":"uuid"}}` | `{"msg":"Kamu sudah menandai pindai ini."}` |
+| Get Scan `[UBAH v3.1]` | GET | `/api/scans/:id` | YES | `id` | `{"msg":"Hasil pindai","data":{"scanId":"uuid","plantId":"uuid","plantNickname":"Cabai Depan Rumah","imageUrl":"https://cdn.tandur.id/scan/abc.webp","daysAfterPlanting":42,"status":"DONE","primary":{"label":"VIRUS_KUNING_KERITING","confidence":0.72},"alternatives":[],"hasDiscussion":true,"discussionId":"uuid","createdAt":"2026-08-11T06:12:00Z"}}` | `{"msg":"Pindai tidak ditemukan."}` |
+| Get Scan Timeline `[UBAH v3.1]` | GET | `/api/plants/:id/scans` | YES | `?limit=20&cursor=` | `{"msg":"Linimasa","data":{"plantId":"uuid","items":[{"scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","daysAfterPlanting":42,"label":"VIRUS_KUNING_KERITING","displayName":"Virus Kuning Keriting","confidence":0.72,"flag":"REPEATED","createdAt":"2026-08-11T06:12:00Z"},{"scanId":"uuid","daysAfterPlanting":35,"label":"SEHAT","confidence":0.88,"flag":null,"createdAt":"2026-08-04T06:30:00Z"}],"nextCursor":null}}` | `{"msg":"Tanaman tidak ditemukan."}` |
+| Flag Wrong Result `[UBAH v3.1]` | POST | `/api/scans/:id/flag` | YES | `{"reason":"WRONG_LABEL","userGuess":"BERCAK_DAUN","note":"Menurut saya ini bercak daun, bukan virus"}` | `{"msg":"Terima kasih. Laporan ini membantu kami memperbaiki model.","data":{"flagId":"uuid"}}` | `{"msg":"Kamu sudah menandai pindai ini."}` |
 | Delete Scan | DELETE | `/api/scans/:id` | YES | - | `{"msg":"Pindai dihapus."}` | `{"msg":"Pindai tidak ditemukan."}` |
 
 ### 4.3 Diskusi dengan Asisten
@@ -186,9 +254,9 @@ Jawaban dialirkan lewat Server-Sent Events. Klien membuka `EventSource` ke endpo
 
 | Name | Method | URL | Auth | Request Param | Success Response | Failed Response |
 |---|---|---|---|---|---|---|
-| Start Discussion | POST | `/api/discussions` | YES | `{"scanId":"uuid"}` | `{"msg":"Diskusi dibuat","data":{"discussionId":"uuid","scanId":"uuid","context":{"commodity":"CABAI","daysAfterPlanting":42,"diagnosis":"ANTRAKNOSA","confidence":0.72},"suggestedPrompts":["Ini bahaya nggak?","Bisa menular ke tanaman lain?","Berapa lama sampai pulih?"]}}` | `{"msg":"Pindai ini sudah punya diskusi.","data":{"discussionId":"uuid"}}` |
+| Start Discussion `[UBAH v3.1]` | POST | `/api/discussions` | YES | `{"scanId":"uuid"}` | `{"msg":"Diskusi dibuat","data":{"discussionId":"uuid","scanId":"uuid","context":{"commodity":"CABAI","daysAfterPlanting":42,"diagnosis":"VIRUS_KUNING_KERITING","confidence":0.72},"suggestedPrompts":["Ini bahaya nggak?","Bisa menular ke tanaman lain?","Berapa lama sampai pulih?"]}}` | `{"msg":"Pindai ini sudah punya diskusi.","data":{"discussionId":"uuid"}}` |
 | Send Message | POST | `/api/discussions/:id/messages` | YES | `{"content":"Ini bahaya nggak?"}` | **Aliran SSE**, lihat contoh di bawah tabel | `{"msg":"Kuota diskusi harian habis (15/15). Coba lagi besok."}` |
-| Get Discussion | GET | `/api/discussions/:id` | YES | `id` | `{"msg":"Diskusi","data":{"discussionId":"uuid","scanId":"uuid","messages":[{"messageId":"uuid","role":"USER","content":"Ini bahaya nggak?","createdAt":"2026-08-11T06:15:00Z"},{"messageId":"uuid","role":"ASSISTANT","content":"Antraknosa memang merugikan kalau dibiarkan...","citations":[{"title":"Petunjuk Teknis Budidaya Cabai","publisher":"Balitsa","year":2023,"page":34,"url":"https://balitsa.litbang.pertanian.go.id/..."}],"helpful":null,"createdAt":"2026-08-11T06:15:04Z"}]}}` | `{"msg":"Diskusi tidak ditemukan."}` |
+| Get Discussion | GET | `/api/discussions/:id` | YES | `id` | `{"msg":"Diskusi","data":{"discussionId":"uuid","scanId":"uuid","messages":[{"messageId":"uuid","role":"USER","content":"Ini bahaya nggak?","createdAt":"2026-08-11T06:15:00Z"},{"messageId":"uuid","role":"ASSISTANT","content":"Virus kuning keriting memang merugikan kalau dibiarkan...","citations":[{"title":"Petunjuk Teknis Budidaya Cabai","publisher":"Balitsa","year":2023,"page":34,"url":"https://balitsa.litbang.pertanian.go.id/..."}],"helpful":null,"createdAt":"2026-08-11T06:15:04Z"}]}}` | `{"msg":"Diskusi tidak ditemukan."}` |
 | Rate Message | POST | `/api/discussions/messages/:id/rate` | YES | `{"helpful":true}` | `{"msg":"Terima kasih atas penilaiannya."}` | `{"msg":"Pesan tidak ditemukan."}` |
 | Get My Quota | GET | `/api/discussions/quota` | YES | - | `{"msg":"Kuota","data":{"dailyLimit":15,"usedToday":4,"remaining":11,"resetAt":"2026-08-12T00:00:00Z"}}` | `{"msg":"Token tidak valid."}` |
 
@@ -199,7 +267,7 @@ event: start
 data: {"messageId":"uuid","model":"flash-lite"}
 
 event: chunk
-data: {"text":"Antraknosa memang merugikan "}
+data: {"text":"Virus kuning keriting memang merugikan "}
 
 event: chunk
 data: {"text":"kalau dibiarkan, tapi di HST 42 "}
@@ -236,7 +304,7 @@ data: {"code":"ALL_PROVIDERS_FAILED","msg":"Asisten sedang tidak bisa dihubungi.
 | Search Questions | GET | `/api/community/search` | YES | `?q=daun+keriting&commodity=CABAI&limit=20` | `{"msg":"Hasil pencarian","data":{"items":[{"questionId":"uuid","title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","snippet":"...daun mudanya keriting ke atas...","score":24,"replyCount":14,"hasBestAnswer":true}],"nextCursor":null}}` | `{"msg":"Kata kunci minimal 3 karakter."}` |
 | Find Similar | POST | `/api/community/questions/similar` | YES | `{"title":"daun cabai keriting","commodity":"CABAI"}` | `{"msg":"Pertanyaan serupa","data":[{"questionId":"uuid","title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","replyCount":14,"hasBestAnswer":true,"similarity":0.87}]}` | `{"msg":"Judul minimal 10 karakter."}` |
 | Create Question | POST | `/api/community/questions` | YES | `{"title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","body":"Cabai saya HST 30, daun mudanya keriting ke atas. Sudah saya cek bawah daun, tidak ada kutu.","commodity":"CABAI","tags":["hama","daun"],"photos":["https://cdn.tandur.id/cm/a.webp"],"fromScanId":"uuid"}` | `{"msg":"Pertanyaan terkirim","data":{"questionId":"uuid","title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","xpEarned":5}}` | `{"msg":{"title":["Judul minimal 10 karakter."],"tags":["Maksimal 3 label."],"photos":["Maksimal 4 foto."]}}` |
-| Get Question | GET | `/api/community/questions/:id` | YES | `id` | `{"msg":"Pertanyaan","data":{"questionId":"uuid","title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","body":"Cabai saya HST 30...","commodity":"CABAI","tags":["hama","daun"],"district":"Grobogan","photos":["https://cdn.tandur.id/cm/a.webp"],"attachedScan":{"scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","label":"TIDAK_TERIDENTIFIKASI","daysAfterPlanting":30},"author":{"userId":"uuid","fullName":"Reza P","reputation":42},"score":24,"myVote":1,"replyCount":14,"createdAt":"2026-08-11T00:12:00Z","canEdit":false}}` | `{"msg":"Pertanyaan tidak ditemukan."}` |
+| Get Question | GET | `/api/community/questions/:id` | YES | `id` | `{"msg":"Pertanyaan","data":{"questionId":"uuid","title":"Daun cabai keriting tapi tidak ada kutunya, kenapa?","body":"Cabai saya HST 30...","commodity":"CABAI","tags":["hama","daun"],"district":"Grobogan","photos":["https://cdn.tandur.id/cm/a.webp"],"attachedScan":{"scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","label":null,"status":"LOW_CONFIDENCE","daysAfterPlanting":30},"author":{"userId":"uuid","fullName":"Reza P","reputation":42},"score":24,"myVote":1,"replyCount":14,"createdAt":"2026-08-11T00:12:00Z","canEdit":false}}` | `{"msg":"Pertanyaan tidak ditemukan."}` |
 | Update Question | PATCH | `/api/community/questions/:id` | YES | `{"title":"...","body":"...","tags":["hama"]}` | `{"msg":"Pertanyaan diperbarui","data":{"questionId":"uuid","editedAt":"2026-08-11T01:00:00Z"}}` | `{"msg":"Pertanyaan hanya bisa diubah dalam 30 menit pertama."}` |
 | Delete Question | DELETE | `/api/community/questions/:id` | YES | - | `{"msg":"Pertanyaan dihapus."}` | `{"msg":"Tidak bisa menghapus pertanyaan yang sudah punya balasan."}` |
 
@@ -284,10 +352,10 @@ data: {"code":"ALL_PROVIDERS_FAILED","msg":"Asisten sedang tidak bisa dihubungi.
 | Publish Content | POST | `/api/admin/content/:id/publish` | ADMIN | `{"reviewedBy":"Ir. Sukirno, PPL Grobogan","reviewNote":"Dosis dan waktu sesuai anjuran Balitsa"}` | `{"msg":"Konten diterbitkan","data":{"contentId":"uuid","status":"PUBLISHED","publishedAt":"2026-08-11T10:00:00Z"}}` | `{"msg":"Konten wajib ditinjau ahli agronomi sebelum diterbitkan."}` |
 | Moderation Queue | GET | `/api/admin/reports` | ADMIN | `?status=OPEN` | `{"msg":"Antrean laporan","data":[{"reportId":"uuid","targetType":"REPLY","targetId":"uuid","excerpt":"Semprot pakai dosis dua kali lipat biar cepat mati","reason":"MISINFORMATION","reporterCount":3,"status":"OPEN","createdAt":"2026-08-11T02:00:00Z"}]}` | `{"msg":"Akses ditolak."}` |
 | Resolve Report | POST | `/api/admin/reports/:id/resolve` | ADMIN | `{"action":"REMOVE_CONTENT","note":"Anjuran dosis berbahaya"}` | `{"msg":"Laporan diselesaikan","data":{"reportId":"uuid","action":"REMOVE_CONTENT","status":"RESOLVED"}}` | `{"msg":"Laporan sudah diselesaikan."}` |
-| Scan Flag Queue | GET | `/api/admin/scan-flags` | ADMIN | `?status=OPEN&commodity=CABAI` | `{"msg":"Antrean penandaan","data":[{"flagId":"uuid","scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","modelLabel":"ANTRAKNOSA","modelConfidence":0.72,"userGuess":"DEFISIENSI_K","note":"Menurut saya ini kekurangan kalium","modelVersion":"1.3.0","createdAt":"2026-08-11T07:00:00Z"}]}` | `{"msg":"Akses ditolak."}` |
-| Resolve Scan Flag | POST | `/api/admin/scan-flags/:id/resolve` | ADMIN | `{"verdict":"MODEL_WRONG","correctLabel":"DEFISIENSI_K","addToTrainingSet":true}` | `{"msg":"Penandaan diselesaikan","data":{"flagId":"uuid","addedToTrainingSet":true}}` | `{"msg":"Penandaan sudah diselesaikan."}` |
-| Model Metrics | GET | `/api/admin/vision/metrics` | ADMIN | `?commodity=CABAI&from=2026-08-01&to=2026-08-11` | `{"msg":"Metrik model","data":{"commodity":"CABAI","modelVersion":"1.3.0","totalScans":1420,"lowConfidenceRate":0.18,"flagRate":0.06,"flaggedWrongCount":84,"labelDistribution":[{"label":"SEHAT","count":612},{"label":"ANTRAKNOSA","count":304}],"avgInferenceMs":870}}` | `{"msg":"Akses ditolak."}` |
-| Publish Model Version | POST | `/api/admin/vision/model` | ADMIN | `{"commodity":"CABAI","version":"1.4.0","fileUrl":"https://cdn.tandur.id/ml/cabai_v140_int8.tflite","sha256":"7a1b...","labels":["SEHAT","ANTRAKNOSA"],"confidenceThreshold":0.62,"fieldTestAccuracy":0.83,"note":"Dilatih ulang dengan 300 foto lapangan"}` | `{"msg":"Versi model diterbitkan","data":{"version":"1.4.0","rolloutPercent":10}}` | `{"msg":"Checksum tidak cocok dengan berkas."}` |
+| Scan Flag Queue `[UBAH v3.1]` | GET | `/api/admin/scan-flags` | ADMIN | `?status=OPEN&commodity=CABAI` | `{"msg":"Antrean penandaan","data":[{"flagId":"uuid","scanId":"uuid","imageUrl":"https://cdn.tandur.id/scan/abc.webp","modelLabel":"VIRUS_KUNING_KERITING","modelConfidence":0.72,"userGuess":"BERCAK_DAUN","note":"Menurut saya ini bercak daun, bukan virus","modelVersion":"1.3.0","createdAt":"2026-08-11T07:00:00Z"}]}` | `{"msg":"Akses ditolak."}` |
+| Resolve Scan Flag `[UBAH v3.1]` | POST | `/api/admin/scan-flags/:id/resolve` | ADMIN | `{"verdict":"MODEL_WRONG","correctLabel":"BERCAK_DAUN","addToTrainingSet":true}` | `{"msg":"Penandaan diselesaikan","data":{"flagId":"uuid","addedToTrainingSet":true}}` | `{"msg":"Penandaan sudah diselesaikan."}` |
+| Model Metrics `[UBAH v3.1]` | GET | `/api/admin/vision/metrics` | ADMIN | `?commodity=CABAI&from=2026-08-01&to=2026-08-11` | `{"msg":"Metrik model","data":{"commodity":"CABAI","modelVersion":"1.3.0","totalScans":1420,"lowConfidenceRate":0.18,"flagRate":0.06,"flaggedWrongCount":84,"labelDistribution":[{"label":"SEHAT","count":612},{"label":"VIRUS_KUNING_KERITING","count":304}],"avgInferenceMs":870}}` | `{"msg":"Akses ditolak."}` |
+| **Publish Model Version** `[UBAH v3.1]` | POST | `/api/admin/vision/model` | ADMIN | `{"commodity":"CABAI","version":"1.1.0","fileUrl":"https://cdn.tandur.id/ml/cabai_v110_fp16.tflite","sha256":"7a1b...","quantization":"FLOAT16","inputDtype":"float32","labels":["BERCAK_DAUN","SEHAT","VIRUS_KUNING_KERITING"],"confidenceThreshold":0.70,"healthyConfidenceThreshold":0.85,"fieldTestAccuracy":0.83,"note":"Dilatih ulang dengan 300 foto lapangan"}` | `{"msg":"Versi model diterbitkan","data":{"version":"1.4.0","rolloutPercent":10}}` | `{"msg":"Checksum tidak cocok dengan berkas."}` |
 | RAG Documents | GET | `/api/admin/rag/documents` | ADMIN | `?commodity=CABAI` | `{"msg":"Dokumen basis pengetahuan","data":[{"documentId":"uuid","title":"Petunjuk Teknis Budidaya Cabai","publisher":"Balitsa","year":2023,"sourceUrl":"https://...","commodity":"CABAI","chunkCount":42,"indexedAt":"2026-08-05T00:00:00Z"}]}` | `{"msg":"Akses ditolak."}` |
 | Add RAG Document | POST | `/api/admin/rag/documents` | ADMIN | `{"title":"Pengendalian Antraknosa pada Cabai","publisher":"BSIP Jawa Tengah","year":2024,"sourceUrl":"https://...","commodity":"CABAI","fileUrl":"https://cdn.tandur.id/kb/antraknosa.pdf"}` | **202** `{"msg":"Dokumen diterima, sedang dipecah dan diindeks","data":{"documentId":"uuid","jobId":"uuid"}}` | `{"msg":"Format berkas harus PDF atau teks."}` |
 | Delete RAG Document | DELETE | `/api/admin/rag/documents/:id` | ADMIN | - | `{"msg":"Dokumen dan seluruh potongannya dihapus."}` | `{"msg":"Dokumen tidak ditemukan."}` |

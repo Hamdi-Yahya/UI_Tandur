@@ -183,6 +183,46 @@ class _NextButton extends StatelessWidget {
   }
 }
 
+/// Ilustrasi onboarding nyata — memuat aset WebP hasil ekspor Figma
+/// (lihat assets/ASET.md). Jatuh balik ke [OnboardingIllustrationPlaceholder]
+/// kalau `imagePath` kosong atau gagal dimuat, supaya layar tidak pernah
+/// menampilkan kotak abu-abu polos.
+class OnboardingIllustration extends StatelessWidget {
+  final String? imagePath;
+  final String label;
+  final Color fallbackColor;
+
+  const OnboardingIllustration({
+    super.key,
+    required this.imagePath,
+    required this.label,
+    this.fallbackColor = AppColors.daunSamar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (imagePath == null) {
+      return OnboardingIllustrationPlaceholder(label: label, color: fallbackColor);
+    }
+    return Semantics(
+      label: 'Ilustrasi: $label',
+      image: true,
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.asset(
+            imagePath!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                OnboardingIllustrationPlaceholder(label: label, color: fallbackColor),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Widget placeholder ilustrasi onboarding.
 /// Aspect ratio 4:3. Mudah diganti aset final tanpa mengubah layout.
 class OnboardingIllustrationPlaceholder extends StatelessWidget {

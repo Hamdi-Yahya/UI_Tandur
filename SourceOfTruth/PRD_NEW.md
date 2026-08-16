@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Produk** | TANDUR (Tani Terukur) |
-| **Versi** | 3.0 |
-| **Tanggal** | 11 Agustus 2026 |
+| **Versi** | 3.1 |
+| **Tanggal** | 14 Agustus 2026 |
+| **Perubahan 3.1** | Hasil terukur model Cabai v1.0.0 dimasukkan (7.3.1). Kuantisasi INT8 diganti float 16 berdasarkan pengujian. Aturan "tiga dugaan teratas" diganti "di atas 10 persen, maksimal tiga". Ambang keyakinan Q2 terjawab. Konteks cuaca dicoret. Antraknosa dinyatakan belum didukung. Tabel dataset diganti hasil survei nyata beserta lisensinya |
 | **Platform** | Flutter (Android prioritas), Next.js untuk panel admin |
 | **Komoditas** | Cabai Rawit, Padi, Terong |
 | **Jangka MVP** | 12 minggu |
@@ -200,14 +201,16 @@ Butir terakhir disengaja. Meminta pendaftaran sebelum pengguna melihat nilai apl
 - [ ] Gambar dikompres ke sisi terpanjang 1024 piksel di perangkat
 - [ ] Klasifikasi dijalankan di perangkat, hasil muncul di bawah 1,5 detik
 - [ ] Klasifikasi tetap berfungsi tanpa koneksi internet
-- [ ] Hasil menampilkan tiga dugaan teratas beserta tingkat keyakinan, tidak pernah satu label tunggal
-- [ ] Keyakinan di bawah 60 persen ditampilkan sebagai "belum yakin" dengan saran memotret ulang
+- [ ] Hasil menampilkan setiap dugaan dengan keyakinan di atas 10 persen, maksimal tiga, tidak pernah satu label tunggal
+- [ ] Keyakinan di bawah 70 persen ditampilkan sebagai "belum yakin" dengan saran memotret ulang
+- [ ] Vonis `SEHAT` memakai ambang lebih ketat, 85 persen, karena salah menyatakan sehat jauh lebih merugikan daripada salah menyatakan sakit
+- [ ] Penyakit yang belum didukung model disebutkan apa adanya, bukan dipaksakan ke label terdekat
 - [ ] Foto yang jelas bukan daun ditolak dengan pesan yang menjelaskan cara memperbaikinya
 
 **US-08** — Sebagai penanam, saya ingin bertanya lanjut soal hasil pindai.
 
 - [ ] Setelah hasil klasifikasi muncul, tersedia ruang percakapan dengan asisten
-- [ ] Asisten menerima konteks: komoditas, umur, hasil klasifikasi, riwayat pindai 30 hari, cuaca 7 hari
+- [ ] Asisten menerima konteks: komoditas, umur, hasil klasifikasi, 10 pindai terakhir, dan enam pesan terakhir dalam percakapan yang sama
 - [ ] Jawaban asisten mencantumkan sumber rujukan yang bisa dibuka
 - [ ] Tersedia tiga pertanyaan lanjutan yang disarankan, bisa diketuk
 - [ ] Asisten tidak pernah menyebut merek dagang pestisida maupun dosis kimia spesifik
@@ -287,7 +290,7 @@ Butir terakhir disengaja. Meminta pendaftaran sebelum pengguna melihat nilai apl
 | Waktu balas pertama asisten | Di bawah 3 detik |
 | Respons API persentil ke-95 | Di bawah 500 milidetik |
 | Ukuran APK setelah pemisahan per ABI | Di bawah 40 MB |
-| Ukuran model TFLite setelah kuantisasi | Di bawah 8 MB |
+| Ukuran model TFLite setelah kuantisasi | Di bawah 8 MB. Tercapai pada Cabai v1.0.0: 6,00 MB |
 | Penggunaan memori puncak | Di bawah 250 MB |
 | Frame per detik saat menggeser peta | 60, tanpa jank di atas 16 milidetik |
 
@@ -383,24 +386,73 @@ Perubahan yang dibuat saat luring masuk antrean keluar lokal, dikirim ulang saat
 | Arsitektur | MobileNetV3-Large, pemindahan pembelajaran | Rasio akurasi terhadap ukuran terbaik untuk perangkat kelas bawah |
 | Pembanding | EfficientNet-Lite0 | Dilatih paralel, yang menang di validasi lapangan yang dipakai |
 | Kerangka latih | TensorFlow 2 dan Keras | Jalur ekspor ke TFLite paling matang |
-| Kuantisasi | Bilangan bulat penuh 8 bit | Ukuran turun sekitar empat kali, akurasi turun di bawah 2 persen |
+| Kuantisasi | **Float 16 bit** | Bilangan bulat penuh 8 bit sudah diuji dan **ditolak**: akurasi jatuh dari 90,2 ke 59,0 persen. Penyebabnya `hard_swish` dan blok squeeze-excite pada MobileNetV3 yang rusak saat dipaksa bilangan bulat. Float 16 memberi 6,00 MB tanpa kehilangan akurasi sama sekali. Rinciannya di 7.3.1 |
 | Penyajian | Di perangkat lewat TFLite | Tanpa biaya inferensi, tanpa koneksi, tanpa latensi jaringan |
 | Cadangan | Endpoint server dengan model yang sama | Untuk perangkat yang gagal memuat model |
 
 **Dataset dan penanganannya:**
 
-| Komoditas | Dataset | Catatan penting |
-|---|---|---|
-| Terong | Eggplant Leaf Disease Dataset, 4.089 citra, 6 kelas | Difoto berlatar putih terkendali, celah domain besar terhadap foto lapangan |
-| Terong | Eggplant Disease Recognition Dataset, 1.400 citra asli menjadi 9.800 setelah augmentasi | Angka 9.800 adalah hasil augmentasi dari 1.400 citra asli |
-| Padi | Beberapa himpunan daun padi, termasuk himpunan dari Sulawesi Tenggara | Kelas umum: hawar daun bakteri, blas, bercak coklat, tungro, sehat |
-| Cabai | Himpunan cabai tersedia tapi jauh lebih kecil | Kelemahan terbesar proyek, ditangani di Bagian 9 |
+Hasil survei lengkap per 14 Agustus 2026. Kolom "citra asli" sengaja dipisahkan dari jumlah berkas, karena banyak penerbit sudah mencampur hasil augmentasi ke dalam dataset dan jumlah berkas menjadi menyesatkan.
+
+| Komoditas | Dataset | Citra asli | Lisensi | Status |
+|---|---|---|---|---|
+| **Cabai** | `abdulrosyidkun/chili-leaf-disease-ponorogo-east-java` | 394, 4 folder | **MIT** | **Dipakai.** Bersih, hampir seimbang, satu daun per foto, tanpa augmentasi bawaan |
+| Cabai | `shuvokumarbasak2030/chili-pepper-multi-source-dataset-bd` | 894 unik dari 17.340 berkas | tidak jelas | Ditolak. Kelasnya varietas cabai bukan penyakit, dan 894 citra diekspor ulang dalam 5 format sehingga tampak berlipat |
+| Cabai | `prudhvi143413s/anthracnose-disease-in-chilli-mobile-captured` | 507 | CC0-1.0 | Ditolak. Difoto satu rumpun dari jarak 1 sampai 2 meter, gejalanya tidak terlihat pada resolusi itu |
+| Cabai | `prudhvi143413s/anthracnose-disease-in-chili-palnadu-ap` | 870 | tidak jelas | Ditolak. Banyak berkas berupa kolase beberapa foto dalam satu bingkai, kelas sehat semuanya buah merah sementara kelas sakit semuanya buah hijau sehingga model belajar warna bukan penyakit, dan ditemukan berkas berwatermark Alamy |
+| **Terong** | `sujaykapadnis/eggplant-disease-recognition-dataset` | 1.400, 7 kelas seimbang | — | Rencana berikutnya. **Hanya folder `Original Images (Version 02)` yang boleh dipakai**, folder `Augmented` dilarang karena melanggar aturan 1 di bawah |
+| Padi | `tedisetiady/leaf-rice-disease-indonesia` | 240, 3 kelas | — | Belum cukup. Perlu ditambah |
+| Padi | Zenodo `10.5281/zenodo.15817084` | 465 MB | **CC-BY-4.0** | Kandidat penambal, punya DOI sehingga bisa disitasi resmi di proposal |
+| Terong | Zenodo `10.5281/zenodo.15527092` | resolusi tinggi | **CC-BY-4.0** | Kandidat cadangan, punya DOI |
+
+**Temuan yang mengubah asumsi:** seluruh dataset yang layak pakai berisi foto daun tunggal berlatar polos, bukan foto kebun. Ini terdengar buruk, tetapi `5.2 US-07` justru menyuruh pengguna memotret dengan cara yang sama — satu daun, latar polos, cahaya cukup — sehingga celah domainnya jauh lebih sempit daripada kasus terburuk. Yang tetap wajib: mengukur pada foto lapangan asli dari demplot, sesuai aturan 2 di bawah.
 
 **Tiga aturan pelatihan yang tidak boleh dilanggar:**
 
 1. **Pisahkan latih, validasi, dan uji sebelum augmentasi, bukan sesudah.** Kalau dibalik, citra hasil augmentasi dari foto yang sama bisa muncul di latih dan uji sekaligus, dan akurasi validasi jadi indah tapi bohong. Ini kesalahan paling umum pada dataset pertanian yang sudah diaugmentasi penerbitnya.
 2. **Ukur pada himpunan uji lapangan yang terpisah.** Foto berlatar putih tidak mewakili pekarangan. Kumpulkan minimal 300 foto lapangan asli dari demplot tim dan dari peserta uji coba, dan jadikan itu ukuran sebenarnya.
-3. **Jangan pernah menampilkan satu label tunggal.** Tampilkan tiga teratas dengan tingkat keyakinan. Kalau tertinggi di bawah 0,60, tampilkan sebagai belum yakin.
+3. **Jangan pernah menampilkan satu label tunggal.** Tampilkan setiap dugaan yang keyakinannya di atas 0,10, maksimal tiga. Aturan lama "selalu tiga teratas" tidak lagi berlaku: dengan model Cabai yang hanya punya 3 kelas, "tiga teratas" berarti menampilkan seluruh isi model dan tidak menyampaikan informasi apa pun. Ambang "belum yakin" ada di 7.3.1.
+
+#### 7.3.1 Hasil terukur, Cabai v1.0.0
+
+Dilatih 14 Agustus 2026. Angka di bawah diukur pada himpunan uji yang dipisahkan sebelum augmentasi dan tidak pernah disentuh selama pelatihan maupun kuantisasi.
+
+| | |
+|---|---|
+| Kelas | `BERCAK_DAUN`, `SEHAT`, `VIRUS_KUNING_KERITING` — **urut abjad, urutan ini adalah kontrak dengan klien** karena TFLite mengembalikan indeks bukan nama |
+| Pembagian data | 273 latih, 58 validasi, 61 uji |
+| Akurasi uji | **90,16 persen**, 55 dari 61 |
+| Ukuran berkas | **6,00 MB**, float 16 |
+| Masukan | 224 x 224, `float32`, nilai piksel mentah 0 sampai 255. Normalisasi sudah berada di dalam model, klien tidak perlu melakukannya |
+
+**Dua kelas digabung.** Folder `curly` dan `yellow_light` pada dataset sumber digabung menjadi satu label `VIRUS_KUNING_KERITING`. Keduanya gejala infeksi virus yang sama dan penanganannya identik, sehingga memisahkannya hanya memaksa model membedakan hal yang tidak perlu dibedakan oleh pengguna.
+
+**Profil kesalahan, lebih penting daripada angka akurasi:**
+
+| Sebenarnya | Ditebak `BERCAK_DAUN` | Ditebak `SEHAT` | Ditebak `VIRUS_KUNING_KERITING` |
+|---|---|---|---|
+| `BERCAK_DAUN` | 15 | **1** | 0 |
+| `SEHAT` | 0 | 14 | 0 |
+| `VIRUS_KUNING_KERITING` | 2 | **3** | 26 |
+
+Presisi kelas `SEHAT` hanya 0,778. Artinya ketika model menyatakan tanaman sehat, satu dari lima vonis itu keliru, dan 4 dari 47 daun sakit dinyatakan sehat. Ini arah kesalahan yang paling merugikan: pengguna tidak berbuat apa-apa dan penyakit menyebar.
+
+**Ambang keyakinan, menjawab Q2 di Bagian 12:**
+
+| Ambang | Hasil yang ditampilkan | Akurasi hasil yang ditampilkan |
+|---|---|---|
+| 0,60 | 98,4 persen | 91,7 persen |
+| **0,70** | 90,2 persen | 92,7 persen |
+| 0,80 | 86,9 persen | 94,3 persen |
+| 0,90 | 73,8 persen | 97,8 persen |
+
+Keputusan: **ambang umum 0,70**, dan **ambang khusus 0,85 untuk vonis `SEHAT`**. Ambang dibuat tidak simetris dengan sengaja, karena akibat dua jenis kesalahan tidak setara. Salah menyatakan sakit padahal sehat hanya membuat pengguna memotret ulang. Salah menyatakan sehat padahal sakit membuat pengguna kehilangan satu musim.
+
+**Batas yang diakui terbuka:**
+
+- **Antraknosa, yang petani sebut patek, belum didukung.** Gejalanya berada di buah sedangkan seluruh dataset yang layak adalah penyakit daun. Dua dataset antraknosa sudah diuji dan ditolak dengan alasan yang tercatat di tabel dataset. Jalan masuknya adalah demplot tim, bukan menambal dengan data bermutu rendah. Model yang mengaku tidak tahu lebih aman daripada model yang menebak dari warna buah.
+- **Angka 90,16 persen berasal dari 61 foto.** Satu foto salah menggeser akurasi sekitar 1,6 poin, jadi ketidakpastiannya besar dan harus disebutkan apa adanya saat presentasi.
+- **Belum pernah diuji pada foto lapangan asli.** Sampai aturan 2 dipenuhi, angka ini adalah akurasi pada kondisi laboratorium.
 
 ### 7.4 Asisten AI dengan basis pengetahuan
 
@@ -408,7 +460,7 @@ Alur lengkapnya:
 
 ```
 Hasil klasifikasi + pertanyaan pengguna
-  → Rakit konteks: komoditas, umur, riwayat pindai 30 hari, cuaca 7 hari
+  → Rakit konteks: komoditas, umur, 10 pindai terakhir, 6 pesan terakhir
   → Ubah pertanyaan jadi vektor sematan
   → Cari kemiripan di pgvector, ambil 6 potongan teratas
   → Saring ulang, sisakan 3 potongan paling relevan
@@ -510,9 +562,11 @@ Biaya inferensi computer vision nol karena model berjalan di perangkat. Ini alas
 
 | Risiko | Dampak | Kemungkinan | Mitigasi |
 |---|---|---|---|
-| **Dataset cabai terlalu kecil** | Model cabai jelek padahal cabai adalah komoditas utama | **Tinggi** | Gabungkan beberapa himpunan, augmentasi berat, kumpulkan foto dari demplot sejak minggu 1. Kalau tetap kurang, luncurkan cabai dengan penanda beta dan keyakinan yang lebih ketat |
-| Celah domain foto laboratorium ke foto lapangan | Akurasi jatuh dari 95 persen di validasi ke bawah 60 persen di lapangan | Tinggi | Augmentasi latar acak, buram, variasi cahaya, bayangan. Ukur pada himpunan uji lapangan terpisah |
-| Kebocoran data karena augmentasi sebelum pemisahan | Akurasi terlihat bagus tapi palsu | Sedang | Pisahkan berdasarkan citra asli, bukan berdasarkan berkas. Ditulis di daftar periksa pelatihan |
+| **Dataset cabai terlalu kecil** | Model cabai jelek padahal cabai adalah komoditas utama | **Terjadi, sebagian** | Terkonfirmasi 14 Agustus 2026. Dari 6 dataset cabai yang disurvei, hanya 1 yang layak, berisi 394 foto dan 3 kelas. Model tetap mencapai 90,16 persen lewat pemindahan pembelajaran dengan tulang punggung dibekukan dan augmentasi berat saat pelatihan. Cabai diluncurkan dengan penanda beta dan ambang 0,70 sesuai rencana mitigasi |
+| **Antraknosa tidak terdeteksi sama sekali** | Patek adalah momok nomor satu cabai di Indonesia. Aplikasi yang tidak mengenalinya kehilangan kepercayaan pengguna | **Terjadi** | Gejalanya di buah, seluruh dataset layak adalah penyakit daun. Dua dataset antraknosa diuji dan ditolak: yang satu difoto dari jarak 2 meter, yang satu berisi kolase dan bias warna buah merah lawan hijau. Ditangani lewat demplot, bukan dengan menambal data bermutu rendah. Sampai itu ada, aplikasi menyatakan penyakit ini belum didukung |
+| Celah domain foto laboratorium ke foto lapangan | Akurasi jatuh dari 95 persen di validasi ke bawah 60 persen di lapangan | Tinggi | Diperkecil oleh desain: `5.2 US-07` menyuruh pengguna memotret satu daun berlatar polos, sama dengan cara dataset dibuat. Tetap wajib diukur pada himpunan uji lapangan terpisah dari demplot |
+| Kebocoran data karena augmentasi sebelum pemisahan | Akurasi terlihat bagus tapi palsu | Sedang | Pisahkan berdasarkan citra asli, bukan berdasarkan berkas. Ditulis di daftar periksa pelatihan. Pada dataset terong, folder `Augmented` dilarang dipakai dan hanya `Original Images` yang boleh masuk pelatihan |
+| **Kuantisasi merusak model tanpa gejala yang terlihat** | Semua metrik pelatihan tampak sehat, kerusakan baru muncul setelah model dipasang di perangkat | **Terjadi** | Terkonfirmasi: INT8 penuh menjatuhkan akurasi Cabai dari 90,2 ke 59,0 persen dan membuat model kebanyakan memvonis `SEHAT`. Mitigasi tetap: setiap berkas TFLite wajib diukur ulang pada himpunan uji setelah konversi, bukan dianggap sama dengan model asalnya |
 | Kurikulum tidak selesai | Konten kosong, produk tidak berguna | Tinggi | Dibatasi tiga Petak. Format kartu bukan video. Peninjau ahli diamankan minggu 1 |
 | Asisten memberi anjuran berbahaya | Pengguna rugi, tanggung jawab hukum | Sedang | Larangan dosis kimia dan merek dagang di perintah sistem, diuji dengan berkas uji adversarial |
 | RAG mengambil potongan tidak relevan lalu model mengarang | Jawaban terdengar meyakinkan tapi salah | Sedang | Ambang skor kemiripan, penyaringan ulang, instruksi menjawab tidak tahu, rujukan wajib ditampilkan |
@@ -536,6 +590,8 @@ Ditulis eksplisit supaya tidak ada yang diam-diam mengerjakannya:
 - Sistem tugas berjadwal per Hari Setelah Tanam dengan verifikasi bukti
 - Sertifikasi resmi
 - Sensor lapangan dan citra satelit
+- **Data cuaca sebagai konteks asisten.** Sebelumnya disebut di `5.2 US-08` dan `7.4`, dicoret 14 Agustus 2026 karena tidak pernah punya sumber data, tidak ada di skema basis data, tidak ada di kontrak layanan AI, dan tidak ada jatah waktunya dalam 12 minggu. Konteks asisten sekarang: komoditas, umur tanaman, hasil klasifikasi, 10 pindai terakhir, dan 6 pesan terakhir
+- Deteksi penyakit pada buah, termasuk antraknosa. Alasannya di Bagian 9
 - Komoditas selain Cabai Rawit, Padi, dan Terong
 - Mengunduh dan menghosting ulang video pihak lain
 - Aplikasi iOS, dukungan banyak bahasa
@@ -565,7 +621,7 @@ A1 dan A2 adalah yang paling berbahaya. Kalau keduanya gagal, fitur inti kedua t
 | # | Pertanyaan | Butuh diputuskan sebelum |
 |---|---|---|
 | Q1 | Apakah forum butuh moderasi otomatis sejak awal atau cukup laporan manual? | Minggu 9 |
-| Q2 | Berapa ambang keyakinan yang tepat untuk menyatakan belum yakin? | Minggu 8, setelah ada data uji lapangan |
+| ~~Q2~~ | ~~Berapa ambang keyakinan yang tepat untuk menyatakan belum yakin?~~ **Terjawab 14 Agustus 2026: 0,70 umum, 0,85 khusus vonis `SEHAT`.** Dasar pengukurannya di 7.3.1. Ditinjau ulang setelah ada data uji lapangan | ~~Minggu 8~~ selesai |
 | Q3 | Apakah reputasi forum perlu memberi hak istimewa, misalnya moderasi terbatas? | Minggu 10 |
 | Q4 | Siapa menanggung risiko kalau anjuran asisten merugikan pengguna? | Sebelum Ketentuan Layanan terbit |
 

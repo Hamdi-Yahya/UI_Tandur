@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tandur/features/onboarding/presentation/screens/onboarding_intro_screen.dart';
 import 'package:tandur/features/onboarding/presentation/screens/komoditas_screen.dart';
@@ -19,36 +18,26 @@ import 'package:tandur/features/kelas/presentation/screens/final_test_screen.dar
 import 'package:tandur/features/kelas/presentation/screens/final_test_result_screen.dart';
 import 'package:tandur/features/kelas/presentation/screens/downloaded_screen.dart';
 import 'package:tandur/core/presentation/widgets/main_scaffold.dart';
-
-/// Placeholder untuk route yang belum diimplementasikan.
-/// Menampilkan label yang jelas agar debugging mudah.
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F1),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF4F6F1),
-        elevation: 0,
-        title: Text(title),
-      ),
-      body: Center(
-        child: Text(
-          '$title\n[Belum diimplementasikan]',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Color(0xFF5C544A)),
-        ),
-      ),
-    );
-  }
-}
+import 'package:tandur/features/periksa/presentation/screens/kamera_periksa_screen.dart';
+import 'package:tandur/features/periksa/presentation/screens/hasil_pindai_screen.dart';
+import 'package:tandur/features/periksa/presentation/screens/diskusi_screen.dart';
+import 'package:tandur/features/periksa/presentation/screens/daftar_tanaman_screen.dart';
+import 'package:tandur/features/periksa/presentation/screens/form_tanaman_screen.dart';
+import 'package:tandur/features/periksa/presentation/screens/linimasa_tanaman_screen.dart';
+import 'package:tandur/features/warung/presentation/screens/daftar_pertanyaan_screen.dart';
+import 'package:tandur/features/warung/presentation/screens/buat_pertanyaan_screen.dart';
+import 'package:tandur/features/warung/presentation/screens/detail_pertanyaan_screen.dart';
+import 'package:tandur/features/warung/presentation/screens/profil_publik_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/profil_saya_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/ubah_profil_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/riwayat_xp_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/koleksi_lencana_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/notifikasi_screen.dart';
+import 'package:tandur/features/saya/presentation/screens/pengaturan_screen.dart';
 
 /// Router utama aplikasi Tandur.
-/// Route onboarding dan auth sudah terhubung ke screen nyata.
-/// Route fitur utama (kelas, periksa, warung, saya) masih placeholder.
+/// Seluruh route — onboarding, auth, dan keempat fitur utama (kelas, periksa,
+/// warung, saya) — sudah terhubung ke screen nyata.
 final GoRouter appRouter = GoRouter(
   initialLocation: '/onboarding',
   routes: [
@@ -188,11 +177,29 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/periksa',
-              builder: (context, state) => const _PlaceholderScreen(title: 'Periksa Tanaman'),
+              builder: (context, state) => const KameraPeriksaScreen(),
               routes: [
                 GoRoute(
+                  path: 'hasil/:scanId',
+                  builder: (context, state) => HasilPindaiScreen(scanId: state.pathParameters['scanId']!),
+                ),
+                GoRoute(
+                  path: 'diskusi/:scanId',
+                  builder: (context, state) => DiskusiScreen(scanId: state.pathParameters['scanId']!),
+                ),
+                GoRoute(
                   path: 'tanaman',
-                  builder: (context, state) => const _PlaceholderScreen(title: 'Tanaman Saya'),
+                  builder: (context, state) => const DaftarTanamanScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'baru',
+                      builder: (context, state) => const FormTanamanScreen(),
+                    ),
+                    GoRoute(
+                      path: ':id',
+                      builder: (context, state) => LinimasaTanamanScreen(plantId: state.pathParameters['id']!),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -204,7 +211,27 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/warung',
-              builder: (context, state) => const _PlaceholderScreen(title: 'Warung Tani'),
+              builder: (context, state) => const DaftarPertanyaanScreen(),
+              routes: [
+                GoRoute(
+                  path: 'tanya',
+                  builder: (context, state) {
+                    final extra = state.extra as Map<String, dynamic>?;
+                    return BuatPertanyaanScreen(
+                      fromScanId: extra?['fromScanId'] as String?,
+                      initialCommodity: extra?['commodity'] as String?,
+                    );
+                  },
+                ),
+                GoRoute(
+                  path: 'p/:id',
+                  builder: (context, state) => DetailPertanyaanScreen(questionId: state.pathParameters['id']!),
+                ),
+                GoRoute(
+                  path: 'pengguna/:id',
+                  builder: (context, state) => ProfilPublikScreen(userId: state.pathParameters['id']!),
+                ),
+              ],
             ),
           ],
         ),
@@ -214,7 +241,14 @@ final GoRouter appRouter = GoRouter(
           routes: [
             GoRoute(
               path: '/saya',
-              builder: (context, state) => const _PlaceholderScreen(title: 'Profil Saya'),
+              builder: (context, state) => const ProfilSayaScreen(),
+              routes: [
+                GoRoute(path: 'ubah', builder: (context, state) => const UbahProfilScreen()),
+                GoRoute(path: 'xp', builder: (context, state) => const RiwayatXpScreen()),
+                GoRoute(path: 'lencana', builder: (context, state) => const KoleksiLencanaScreen()),
+                GoRoute(path: 'notifikasi', builder: (context, state) => const NotifikasiScreen()),
+                GoRoute(path: 'pengaturan', builder: (context, state) => const PengaturanScreen()),
+              ],
             ),
           ],
         ),
