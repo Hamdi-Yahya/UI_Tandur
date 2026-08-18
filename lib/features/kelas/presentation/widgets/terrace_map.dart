@@ -46,16 +46,22 @@ class _TerraceMapState extends State<TerraceMap>
   }
 
   /// Hitung posisi relatif (0.0–1.0) untuk setiap node di atas gambar peta.
-  /// Posisi disesuaikan secara visual agar cocok dengan topografi gambar peta.png.
-  /// Sumbu Y dimulai dari atas (0.0) ke bawah (1.0).
-  /// Sumbu X dimulai dari kiri (0.0) ke kanan (1.0).
+  ///
+  /// PENTING: gambar peta.png di-render dengan BoxFit.contain dan padding
+  /// horizontal [_mapPaddingH] di kiri-kanan. Posisi X harus memperhitungkan
+  /// padding ini agar node tepat di atas konten gambar, bukan bergeser keluar.
+  ///
+  /// Sumbu Y: 0.0 = atas, 1.0 = bawah.
+  /// Sumbu X: 0.0 = kiri, 1.0 = kanan — dari lebar penuh widget (inklusif padding).
   List<Offset> _getNodeRelativePositions(int nodeCount) {
-    // Posisi default untuk hingga 4 node, mengikuti jalur peta dari atas ke bawah.
+    // Posisi mengikuti teras dari paling atas (ladang atas) ke paling bawah.
+    // X sedikit lebih besar dari tengah (0.50) karena gambar peta condong ke kiri-tengah.
+    // Y dikunci agar tidak melebihi 0.90 supaya node terakhir tidak keluar gambar.
     const defaultPositions = [
-      Offset(0.47, 0.28), // Node 1: area teratas (ladang atas)
-      Offset(0.38, 0.52), // Node 2: area tengah (ladang tengah)
-      Offset(0.48, 0.75), // Node 3: area bawah (sawah/panen)
-      Offset(0.30, 0.88), // Node 4: area paling bawah
+      Offset(0.60, 0.23), // Node 1 — teras teratas, ladang atas-tengah
+      Offset(0.42, 0.46), // Node 2 — teras kedua, ladang tengah kiri
+      Offset(0.52, 0.67), // Node 3 — teras ketiga, sawah panen
+      Offset(0.38, 0.84), // Node 4 — teras terbawah, masih di dalam gambar
     ];
     return defaultPositions.take(nodeCount).toList();
   }
@@ -66,14 +72,17 @@ class _TerraceMapState extends State<TerraceMap>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Tinggi konten = tinggi layar penuh (tanpa overflow agar node tidak keluar).
+        final contentHeight = constraints.maxHeight;
+
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           child: SizedBox(
             width: constraints.maxWidth,
-            // Tinggi konten sedikit lebih besar dari layar agar bisa di-scroll sedikit
-            height: constraints.maxHeight * 1.05,
+            height: contentHeight,
             child: Stack(
-              clipBehavior: Clip.none,
+              // Clip.hardEdge: pastikan tidak ada node yang keluar dari batas peta.
+              clipBehavior: Clip.hardEdge,
               children: [
                 // --- Layer 1: Gambar peta isometrik sebagai latar ---
                 _buildMapBackground(constraints),
@@ -83,11 +92,16 @@ class _TerraceMapState extends State<TerraceMap>
                   final node = widget.nodes[index];
                   final relPos = positions[index];
 
-                  // Konversi posisi relatif ke piksel aktual
-                  final left =
-                      relPos.dx * constraints.maxWidth - _nodeHalfWidth;
+                  // Konversi posisi relatif ke piksel aktual.
+                  // Posisi X memperhitungkan padding horizontal gambar sehingga
+                  // node tidak bergeser ke luar area konten gambar.
+                  final effectiveWidth =
+                      constraints.maxWidth - (_mapPaddingH * 2);
+                  final left = _mapPaddingH +
+                      (relPos.dx * effectiveWidth) -
+                      _nodeHalfWidth;
                   final top =
-                      relPos.dy * constraints.maxHeight * 1.05 - _nodeHalfHeight;
+                      relPos.dy * contentHeight - _nodeHalfHeight;
 
                   return Positioned(
                     left: left,
@@ -117,6 +131,11 @@ class _TerraceMapState extends State<TerraceMap>
 
   /// Tinggi setengah dari node untuk centering vertikal.
   double get _nodeHalfHeight => 45.0;
+
+  /// Padding horizontal gambar peta — harus sinkron dengan nilai di
+  /// [_buildMapBackground]. Dipakai untuk menghitung lebar area gambar
+  /// yang efektif saat memposisikan node.
+  double get _mapPaddingH => AppSpacing.l;
 
   /// Membangun latar gambar peta isometrik.
   Widget _buildMapBackground(BoxConstraints constraints) {

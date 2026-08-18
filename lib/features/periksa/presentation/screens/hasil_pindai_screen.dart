@@ -9,7 +9,12 @@ import 'package:tandur/features/periksa/presentation/widgets/periksa_widgets.dar
 
 /// Layar Hasil Pindai — DESAIN.md §4.6. Menangani dua status: DONE (dugaan
 /// utama + alternatif) dan LOW_CONFIDENCE ("belum yakin"), sesuai kontrak
-/// `POST /api/scans` di API_DOCS_NEW.md §4.2.
+/// `POST /api/scans` di API_DOCS.md §4.2 v3.2.
+///
+/// Perubahan v3.2:
+/// - Menampilkan `alias` (nama daerah penyakit) jika tersedia
+/// - Info versi model + inputSize dari MockManifests di footer disclaimer
+/// - Filter alternatif sudah diterapkan di mock data (confidence > 0.10)
 class HasilPindaiScreen extends StatelessWidget {
   final String scanId;
 
@@ -78,6 +83,16 @@ class HasilPindaiScreen extends StatelessWidget {
               const Divider(color: AppColors.garis),
               const SizedBox(height: AppSpacing.m),
               Text(scan.disclaimer, style: AppTypography.kecil.copyWith(color: AppColors.tanahSamar)),
+              // Info model: versi dan inputSize — dari manifest, bukan hardcode.
+              // Ditampilkan kecil di footer untuk transparansi, sesuai semangat
+              // DESAIN §4.6 "mengakui batas menaikkan kepercayaan".
+              Builder(builder: (_) {
+                final manifest = MockManifests.forCommodity(scan.commodity);
+                return Text(
+                  'Model ${manifest.commodity} v${manifest.version} · ${manifest.inputSize}px · ${manifest.quantization}',
+                  style: AppTypography.kecil.copyWith(color: AppColors.tanahSamar.withValues(alpha: 0.7)),
+                );
+              }),
               const SizedBox(height: AppSpacing.s),
               GestureDetector(
                 onTap: () => _kenapaBisaSalah(context),
@@ -118,6 +133,15 @@ class HasilPindaiScreen extends StatelessWidget {
             Text('DUGAAN UTAMA', style: AppTypography.label.copyWith(color: AppColors.cabai)),
             const SizedBox(height: AppSpacing.s),
             Text(primary.displayName, style: AppTypography.tampilanSedang.copyWith(color: AppColors.tanah)),
+            // Alias adalah nama daerah/umum penyakit, misalnya "bule" untuk
+            // Virus Kuning Keriting, atau "blasting" untuk Blas Daun Padi.
+            if (primary.alias != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                'dikenal juga: ${primary.alias}',
+                style: AppTypography.kecil.copyWith(color: AppColors.tanahSamar, fontStyle: FontStyle.italic),
+              ),
+            ],
             const SizedBox(height: AppSpacing.m),
             LencanaKeyakinan(confidence: primary.confidence, color: AppColors.cabai),
             if (primary.summary != null) ...[

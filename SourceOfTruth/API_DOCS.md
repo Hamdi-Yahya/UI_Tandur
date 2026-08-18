@@ -2,13 +2,114 @@
 
 | | |
 |---|---|
-| **Versi** | 3.1 |
-| **Perubahan 3.1** | Lihat blok "Ringkasan Perubahan 3.1" tepat di bawah tabel ini. Semua baris yang berubah diberi penanda `[UBAH v3.1]` |
+| **Versi** | 3.2 |
+| **Perubahan 3.2** | Lihat blok "Ringkasan Perubahan 3.2" tepat di bawah tabel ini |
+| **Perubahan 3.1** | Lihat blok "Ringkasan Perubahan 3.1". Semua baris yang berubah diberi penanda `[UBAH v3.1]` |
 | **Base URL** | `https://api.tandur.id` |
 | **Prefix** | Semua endpoint diawali `/api` |
 | **Format** | JSON, `camelCase` |
 | **Auth** | `Authorization: Bearer <accessToken>` |
 | **Dokumen terkait** | `PRD.md`, `DESAIN.md` |
+
+---
+
+## Ringkasan Perubahan 3.2
+
+Ditulis 16 Agustus 2026 setelah model Terong v1.0.0 dan Padi v1.0.0 selesai dilatih dan diukur. Dasarnya ada di `PRD.md` bagian **7.3.2** dan **7.3.3**.
+
+**A. Tiga model sekarang lengkap, dan ketiganya berbeda.** Inilah alasan manifes dibuat per komoditas.
+
+| Komoditas | `labels` (urutan adalah kontrak) | `inputSize` | `confidenceThreshold` | `healthyConfidenceThreshold` | Akurasi uji |
+|---|---|---|---|---|---|
+| `CABAI` | `["BERCAK_DAUN","SEHAT","VIRUS_KUNING_KERITING"]` | 224 | 0.70 | **0.85** | 90,16 persen |
+| `TERONG` | `["SEHAT","HAMA_SERANGGA","BERCAK_DAUN","VIRUS_MOSAIK","DAUN_KERDIL","EMBUN_TEPUNG_PUTIH","LAYU"]` | 224 | 0.70 | **0.90** | 86,27 persen |
+| `PADI` | `["BERCAK_COKELAT","BLAS_DAUN","SEHAT"]` | **320** | 0.70 | **0.90** | 90,89 persen |
+
+**B. Dua medan yang sebelumnya boleh dianggap tetap sekarang wajib dibaca dari manifes.**
+
+```
+inputSize                  : 224 untuk semua  ->  224 atau 320, bergantung komoditas
+healthyConfidenceThreshold : 0.85 untuk semua ->  0.85 atau 0.90, bergantung komoditas
+```
+
+Menanam salah satu angka ini di kode klien menyebabkan kegagalan diam-diam. Foto padi yang diperkecil ke 224 akan tetap menghasilkan angka keyakinan yang tampak wajar, tetapi labelnya bisa salah, dan tidak ada galat yang muncul.
+
+**C. `sha256` dan `bytes` wajib diverifikasi setelah pengunduhan model.** Berkas model diunduh dari CDN di luar API, sehingga integritasnya tidak dijamin oleh lapisan HTTP saja. Kalau sidik tidak cocok, berkas dibuang dan diunduh ulang, bukan dipakai.
+
+**D. Padi hanya mengenali tiga kondisi.** Tungro, hispa, hawar pelepah, dan hawar daun bakteri **tidak** ada dalam model dan tidak boleh dipetakan ke label terdekat. Aturan "penyakit di luar daftar label dinyatakan apa adanya" berlaku penuh di sini.
+
+**E. Ketiga berkas model sudah terunggah dan alamatnya final.** Disimpan di Supabase Storage, bucket `models`, bersifat publik. Awalan sama untuk ketiganya:
+
+```
+https://znsifcxggkbvpbcstawe.supabase.co/storage/v1/object/public/
+```
+
+| Komoditas | Sisa alamat (`fileUrl`) | `sha256` | `bytes` |
+|---|---|---|---|
+| `CABAI` | `models/cabai/cabai_v100_fp16.tflite` | `0c8b84f896736fb0b63645ef60585f1b528e46137d524919802620e5a74facc5` | 5996812 |
+| `TERONG` | `models/terong/terong_v100_fp16.tflite` | `3c301079ce022e89d46a467fdeb4a059b480200507699ea0b1aa5e009d54f748` | 5995556 |
+| `PADI` | `models/padi/padi_v100_fp16.tflite` | `c8ab7da9e5d4387c6b1befc737252f3d470e834e370916a16df4bf379aa8c5ab` | 5987608 |
+
+Ketiga sidik di atas sudah diverifikasi dengan mengunduh ulang berkasnya dari alamat publik tersebut, bukan disalin dari catatan pelatihan. Alamat `cdn.tandur.id` yang muncul pada contoh respons di bagian 4.2 adalah contoh lama dan **tidak pernah ada**; pakai tabel ini.
+
+Versi model tertulis di nama berkas, bukan di jalur folder. Rilis berikutnya bernama `cabai_v110_fp16.tflite` dan seterusnya, sehingga alamatnya berbeda dan cache di perangkat tidak mungkin menyajikan model lama.
+
+**F. Angka akurasi cabai berdiri di atas set uji yang kecil.** Cabai diuji pada 61 foto, terong pada 204, padi pada 417. Pada 61 sampel, selisih satu foto menggeser persentase lebih dari satu poin, jadi 90,16 persen tidak sebanding langsung dengan 90,89 persen milik padi. Manifes cabai juga memuat `note` bahwa modelnya belum diuji pada foto lapangan asli — seluruh datanya foto daun tunggal berlatar polos. Angka-angka ini tidak boleh dipajang sebagai jaminan mutu di layar pengguna.
+
+**G. Layanan AI sudah berjalan, dan ini kontraknya.** Ini satu-satunya endpoint yang dipanggil backend ke layanan AI. Bukan endpoint publik — aplikasi tidak boleh memanggilnya langsung.
+
+```
+POST  https://tandur-ai-production.up.railway.app/internal/rag/answer
+Authorization: Bearer <AI_SERVICE_SHARED_SECRET>
+Content-Type: application/json
+```
+
+Rahasia bersamanya dikirim ke backend di luar dokumen ini, tidak lewat obrolan grup dan tidak lewat repositori.
+
+Alamat di atas sudah hidup dan sudah diuji ujung ke ujung pada 18 Agustus 2026: permintaan contoh di bawah menghasilkan `200` dengan `grounded: true` dan satu sitasi bernomor halaman, dalam 6 detik.
+
+**Badan permintaan.** Hanya `question` yang wajib.
+
+| Medan | Tipe | Wajib | Keterangan |
+|---|---|---|---|
+| `question` | string, 1–1000 | ya | Pertanyaan pengguna apa adanya. Jangan disisipi hasil pindai |
+| `commodity` | `"CABAI"` \| `"TERONG"` \| `"PADI"` \| null | tidak | Menyempitkan pencarian; potongan lintas-komoditas tetap ikut |
+| `scanLabel` | string \| null | tidak | Label mentah hasil pindai, misalnya `VIRUS_KUNING_KERITING` |
+| `discussionId` | string \| null | tidak | Ikut tercatat di `LlmCallLog` untuk penelusuran |
+| `history` | array `{role, content}` | tidak | Enam pesan terakhir. Lebih dari itu dipangkas oleh layanan |
+
+**Badan respons.**
+
+```json
+{
+  "answer": "Virus kuning keriting memang merugikan kalau dibiarkan...",
+  "citations": [
+    {"title": "Hama dan Penyakit pada Tanaman Cabai serta Pengendaliannya",
+     "publisher": "Kementerian Pertanian", "year": 2019, "page": 12,
+     "url": "https://repository.pertanian.go.id/..."}
+  ],
+  "grounded": true,
+  "provider": "omniroute",
+  "usage": {"prompt_tokens": 7412, "completion_tokens": 188}
+}
+```
+
+| Keadaan | Kode | Yang harus dilakukan backend |
+|---|---|---|
+| Terjawab | 200, `grounded: true` | Simpan `answer` dan `citations` |
+| Tidak tahu | 200, `grounded: false`, `citations` kosong | **Tetap simpan dan tampilkan.** Ini jawaban jujur, bukan galat. Arahkan ke Warung Tani |
+| Rahasia salah | 401 | Jangan diteruskan ke pengguna |
+| Semua penyedia gagal | 503 | Pakai `ALL_PROVIDERS_FAILED` di bagian 4.3 |
+
+**`scanLabel` bukan sekadar hiasan.** Kalau ia dikirim, layanan menaruhnya sebagai catatan keadaan terpisah untuk model, sehingga pertanyaan seperti "ini bahaya nggak?" punya rujukan. Tanpa `scanLabel`, pertanyaan itu dijawab tidak tahu — dan itu benar, karena "ini" tidak menunjuk apa pun. Yang penting: pertanyaan pengguna tidak pernah diubah isinya; hasil pindai diberikan sebagai konteks di sebelahnya.
+
+**Jaminan sitasi bersifat mekanis, bukan sekadar imbauan di perintah.** Model diwajibkan menutup jawabannya dengan nomor potongan yang dipakai. Kode memeriksa nomor itu; kalau tidak ada atau di luar jangkauan, jawabannya dibuang dan diganti penolakan baku. Artinya `citations` yang kosong bersamaan dengan `grounded: true` tidak mungkin terjadi.
+
+**Pemeriksaan kesehatan.** `GET https://tandur-ai-production.up.railway.app/health`, tanpa autentikasi. Balasannya `503` kalau basis data tidak terjangkau atau korpusnya kosong, jadi aman dipakai sebagai Healthcheck Path.
+
+```json
+{"status":"ok","database":"ok","korpus":"193 potongan","llm":"1 penyedia terkonfigurasi"}
+```
 
 ---
 
@@ -62,8 +163,8 @@ Ambang `SEHAT` sengaja dibuat lebih ketat karena akibat dua jenis kesalahan tida
 
 Tiga hal berikut ada di sisi backend, bukan di dokumen ini, dan masih menunggu:
 
-1. **`RagChunk` belum punya kolom `page`.** Format sitasi di bagian 4.3 mensyaratkan `{title, publisher, year, page, url}`. Title, publisher, year, dan url bisa diambil dari join ke `RagDocument`, tetapi `page` tidak ada sumbernya sehingga setiap sitasi keluar `page: null`. Perlu `ALTER TABLE "RagChunk" ADD COLUMN "page" INTEGER, ADD COLUMN "heading" TEXT;`
-2. **Payload `/internal/rag/answer` belum membawa riwayat percakapan.** Akibatnya pertanyaan lanjutan seperti "berapa lama sampai pulih?" kehilangan konteks, padahal `suggestedPrompts` kita sendiri yang memancing pertanyaan seperti itu. Perlu tambahan `history` berisi enam pesan terakhir.
+1. ~~**`RagChunk` belum punya kolom `page`.**~~ **SELESAI** — kolom `page` dan `heading` sudah ada dan sudah terisi untuk seluruh 193 potongan. Tidak ada `ALTER TABLE` yang perlu dijalankan. Teks aslinya: Format sitasi di bagian 4.3 mensyaratkan `{title, publisher, year, page, url}`. Title, publisher, year, dan url bisa diambil dari join ke `RagDocument`, tetapi `page` tidak ada sumbernya sehingga setiap sitasi keluar `page: null`. Perlu `ALTER TABLE "RagChunk" ADD COLUMN "page" INTEGER, ADD COLUMN "heading" TEXT;`
+2. ~~**Payload `/internal/rag/answer` belum membawa riwayat percakapan.**~~ **SELESAI di sisi layanan AI** — endpointnya sudah menerima `history`, dan juga `scanLabel` serta `discussionId`. Yang tersisa: backend harus benar-benar mengirimkannya. Kontrak lengkapnya ada di bagian **G** di atas. Teks aslinya: Akibatnya pertanyaan lanjutan seperti "berapa lama sampai pulih?" kehilangan konteks, padahal `suggestedPrompts` kita sendiri yang memancing pertanyaan seperti itu. Perlu tambahan `history` berisi enam pesan terakhir.
 3. **Konteks cuaca 7 hari sudah dicoret dari PRD** karena tidak pernah punya sumber data. Bagian 4.3 tidak menyebutnya, jadi tidak ada yang perlu diubah di sini, hanya perlu diketahui agar tidak ditambahkan kembali.
 
 ---
@@ -229,11 +330,11 @@ Klasifikasi dijalankan **di perangkat** dengan model TFLite. Endpoint di bawah m
 
 | Aturan | Nilai |
 |---|---|
-| Urutan `labels` | **Kontrak.** TFLite mengembalikan indeks, bukan nama. Urutan yang berbeda di klien membuat hasil tertukar diam-diam tanpa galat. Untuk Cabai: `["BERCAK_DAUN","SEHAT","VIRUS_KUNING_KERITING"]`, urut abjad |
+| Urutan `labels` | **Kontrak.** TFLite mengembalikan indeks, bukan nama. Urutan yang berbeda di klien membuat hasil tertukar diam-diam tanpa galat. **Salin urutannya apa adanya dari manifes; jangan pernah diurutkan ulang di klien.** Urutannya mengikuti nama folder yang dipakai saat melatih, dan itu tidak selalu berbahasa Indonesia: terong urut abjad Inggris (`Healthy`, `Insect Pest`, `Leaf Spot`, ...) lalu diterjemahkan, sedangkan cabai dan padi urut abjad Indonesia. Daftar lengkap ketiganya ada di tabel "Ringkasan Perubahan 3.2" bagian A |
 | Jumlah dugaan yang ditampilkan | Setiap dugaan dengan keyakinan **di atas 0,10**, maksimal tiga. Bukan lagi "selalu tiga teratas" |
-| Ambang "belum yakin" | **0,70** untuk umum |
-| Ambang khusus vonis `SEHAT` | **0,85.** Lebih ketat dengan sengaja: salah menyatakan sehat padahal sakit membuat pengguna kehilangan satu musim, sedangkan salah menyatakan sakit padahal sehat hanya membuat pengguna memotret ulang |
-| Masukan model | `float32`, piksel mentah 0 sampai 255, 224 x 224. Normalisasi sudah di dalam model, klien tidak melakukannya |
+| Ambang "belum yakin" | **0,70** untuk umum, sama pada ketiga komoditas |
+| Ambang khusus vonis `SEHAT` | **Dibaca dari medan `healthyConfidenceThreshold` pada manifes, jangan ditanam di kode.** Cabai 0,85, terong 0,90, padi 0,90. Lebih ketat dengan sengaja: salah menyatakan sehat padahal sakit membuat pengguna kehilangan satu musim, sedangkan salah menyatakan sakit padahal sehat hanya membuat pengguna memotret ulang |
+| Masukan model | `float32`, piksel mentah 0 sampai 255. **Ukurannya dibaca dari medan `inputSize`, jangan ditanam di kode** — cabai dan terong 224 x 224, padi 320 x 320. Normalisasi sudah di dalam model, klien tidak melakukannya |
 | Penyakit di luar daftar label | Dinyatakan apa adanya sebagai belum didukung. **Jangan** dipaksakan ke label terdekat. Antraknosa termasuk di sini |
 
 | Name | Method | URL | Auth | Request Param | Success Response | Failed Response |

@@ -3,8 +3,9 @@
 | | |
 |---|---|
 | **Produk** | TANDUR (Tani Terukur) |
-| **Versi** | 3.1 |
-| **Tanggal** | 14 Agustus 2026 |
+| **Versi** | 3.2 |
+| **Tanggal** | 16 Agustus 2026 |
+| **Perubahan 3.2** | Hasil terukur Terong v1.0.0 (7.3.2) dan Padi v1.0.0 (7.3.3) dimasukkan. Ambang vonis `SEHAT` ternyata berbeda per komoditas, bukan 0,85 untuk semua. Ukuran masukan juga berbeda per komoditas: padi 320 piksel, cabai dan terong 224 — klien wajib membacanya dari manifes. Kelas `HAMA_HISPA` pada padi dibuang setelah dua percobaan gagal. Tabel dataset diperbarui dengan sumber yang benar-benar dipakai |
 | **Perubahan 3.1** | Hasil terukur model Cabai v1.0.0 dimasukkan (7.3.1). Kuantisasi INT8 diganti float 16 berdasarkan pengujian. Aturan "tiga dugaan teratas" diganti "di atas 10 persen, maksimal tiga". Ambang keyakinan Q2 terjawab. Konteks cuaca dicoret. Antraknosa dinyatakan belum didukung. Tabel dataset diganti hasil survei nyata beserta lisensinya |
 | **Platform** | Flutter (Android prioritas), Next.js untuk panel admin |
 | **Komoditas** | Cabai Rawit, Padi, Terong |
@@ -203,7 +204,8 @@ Butir terakhir disengaja. Meminta pendaftaran sebelum pengguna melihat nilai apl
 - [ ] Klasifikasi tetap berfungsi tanpa koneksi internet
 - [ ] Hasil menampilkan setiap dugaan dengan keyakinan di atas 10 persen, maksimal tiga, tidak pernah satu label tunggal
 - [ ] Keyakinan di bawah 70 persen ditampilkan sebagai "belum yakin" dengan saran memotret ulang
-- [ ] Vonis `SEHAT` memakai ambang lebih ketat, 85 persen, karena salah menyatakan sehat jauh lebih merugikan daripada salah menyatakan sakit
+- [ ] Vonis `SEHAT` memakai ambang lebih ketat, karena salah menyatakan sehat jauh lebih merugikan daripada salah menyatakan sakit. **Nilainya berbeda per komoditas dan dibaca dari medan `healthyConfidenceThreshold` pada manifes model, tidak ditanam di kode:** cabai 0,85, terong 0,90, padi 0,90
+- [ ] **Ukuran masukan model juga dibaca dari medan `inputSize` pada manifes, tidak ditanam di kode.** Padi memakai 320 piksel sedangkan cabai dan terong 224. Menanam angka 224 di kode akan membuat foto padi diperkecil ke ukuran yang salah dan hasilnya kacau tanpa pesan galat apa pun
 - [ ] Penyakit yang belum didukung model disebutkan apa adanya, bukan dipaksakan ke label terdekat
 - [ ] Foto yang jelas bukan daun ditolak dengan pesan yang menjelaskan cara memperbaikinya
 
@@ -290,7 +292,7 @@ Butir terakhir disengaja. Meminta pendaftaran sebelum pengguna melihat nilai apl
 | Waktu balas pertama asisten | Di bawah 3 detik |
 | Respons API persentil ke-95 | Di bawah 500 milidetik |
 | Ukuran APK setelah pemisahan per ABI | Di bawah 40 MB |
-| Ukuran model TFLite setelah kuantisasi | Di bawah 8 MB. Tercapai pada Cabai v1.0.0: 6,00 MB |
+| Ukuran model TFLite setelah kuantisasi | Di bawah 8 MB. Tercapai pada ketiganya: Cabai 6,00 MB, Terong 6,00 MB, Padi 5,99 MB |
 | Penggunaan memori puncak | Di bawah 250 MB |
 | Frame per detik saat menggeser peta | 60, tanpa jank di atas 16 milidetik |
 
@@ -370,11 +372,11 @@ Perubahan yang dibuat saat luring masuk antrean keluar lokal, dikirim ulang saat
 |---|---|---|
 | Kerangka kerja | NestJS 10, TypeScript | Struktur modul jelas untuk tim beberapa orang, dukungan OpenAPI bawaan |
 | ORM | Prisma 5 | Migrasi berbasis skema, aman tipe dari basis data sampai pengendali |
-| Basis data | PostgreSQL lewat Supabase | Relasional sesuai kebutuhan berjenjang, ekstensi pgvector untuk RAG |
-| Pencarian vektor | pgvector | Tidak perlu basis data vektor terpisah, satu instans untuk semua |
+| Basis data | PostgreSQL lewat Supabase | Relasional sesuai kebutuhan berjenjang, satu instans untuk semua |
+| Pencarian basis pengetahuan | BM25 di dalam layanan AI | Korpusnya kecil dan istilahnya khas; lihat 7.4 untuk alasan lengkapnya |
 | Autentikasi | Supabase Auth | Email, kata sandi, dan Google dalam satu paket |
 | Penyimpanan berkas | Supabase Storage untuk foto, Cloudflare R2 untuk video | R2 tanpa biaya keluar data, penting untuk video |
-| Antrean | BullMQ dengan Redis Upstash | Pekerjaan asinkron: pembuatan sematan, notifikasi, evaluasi model |
+| Antrean | BullMQ dengan Redis Upstash | Pekerjaan asinkron: pengindeksan dokumen, notifikasi, evaluasi model |
 | Realtime | Supabase Realtime | Balasan forum masuk tanpa muat ulang |
 | Layanan AI | Python FastAPI terpisah | Bahasa berbeda, profil memori berbeda, penskalaan berbeda |
 | Pemantauan | Sentry dan log terstruktur | Pelacakan galat dan corong penyelesaian Petak |
@@ -400,16 +402,23 @@ Hasil survei lengkap per 14 Agustus 2026. Kolom "citra asli" sengaja dipisahkan 
 | Cabai | `shuvokumarbasak2030/chili-pepper-multi-source-dataset-bd` | 894 unik dari 17.340 berkas | tidak jelas | Ditolak. Kelasnya varietas cabai bukan penyakit, dan 894 citra diekspor ulang dalam 5 format sehingga tampak berlipat |
 | Cabai | `prudhvi143413s/anthracnose-disease-in-chilli-mobile-captured` | 507 | CC0-1.0 | Ditolak. Difoto satu rumpun dari jarak 1 sampai 2 meter, gejalanya tidak terlihat pada resolusi itu |
 | Cabai | `prudhvi143413s/anthracnose-disease-in-chili-palnadu-ap` | 870 | tidak jelas | Ditolak. Banyak berkas berupa kolase beberapa foto dalam satu bingkai, kelas sehat semuanya buah merah sementara kelas sakit semuanya buah hijau sehingga model belajar warna bukan penyakit, dan ditemukan berkas berwatermark Alamy |
-| **Terong** | `sujaykapadnis/eggplant-disease-recognition-dataset` | 1.400, 7 kelas seimbang | — | Rencana berikutnya. **Hanya folder `Original Images (Version 02)` yang boleh dipakai**, folder `Augmented` dilarang karena melanggar aturan 1 di bawah |
-| Padi | `tedisetiady/leaf-rice-disease-indonesia` | 240, 3 kelas | — | Belum cukup. Perlu ditambah |
-| Padi | Zenodo `10.5281/zenodo.15817084` | 465 MB | **CC-BY-4.0** | Kandidat penambal, punya DOI sehingga bisa disitasi resmi di proposal |
-| Terong | Zenodo `10.5281/zenodo.15527092` | resolusi tinggi | **CC-BY-4.0** | Kandidat cadangan, punya DOI |
+| **Terong** | `sujaykapadnis/eggplant-disease-recognition-dataset` | 1.400, 7 kelas seimbang | — | **Dipakai.** Hanya folder `Original Images (Version 02)`. Kecurigaan bahwa isinya diam-diam diaugmentasi diuji dengan gugus sidik perseptual dan tidak terbukti: rasio gugus unik 0,71 sampai 0,99 per kelas |
+| **Padi** | `shayanriyaz/riceleafs` | 3.355 unik dari 6.710 berkas | **CC0-1.0** | **Dipakai.** Pohon direktorinya terduplikasi persis dua kali, dibuktikan dengan MD5 dan dibuang separuh. Punya kelas sehat dalam satu sumber yang sama dengan kelas sakitnya |
+| Padi | Zenodo `10.5281/zenodo.15817084` | 465 MB | **CC-BY-4.0** | **Ditolak.** Tidak punya kelas sehat sama sekali, sehingga model darinya tidak akan pernah bisa memberi vonis `SEHAT`. Selain itu pembagian latih, validasi, dan uji bawaannya bocor: 10,9 persen gugus latih muncul lagi di uji dan 20,1 persen di validasi |
+| Padi | `dedeikhsandwisaputra/rice-leafs-disease-dataset` | 2.628, 6 kelas seimbang | **tidak diketahui** | Ditolak. Kelasnya paling cocok dan pembuatnya orang Indonesia, tetapi lisensinya kosong sehingga tidak ada izin pakai yang bisa dipertanggungjawabkan |
+| Padi | `shrupyag001/philippines-rice-diseases` | sekitar 1.400 | **AGPL-3.0** | Ditolak. Copyleft kuat berisiko menular ke produk, dan hanya sekitar 100 foto per kelas |
+| Padi | `tedisetiady/leaf-rice-disease-indonesia` | 240, 3 kelas | — | Ditolak. Terlalu sedikit |
+| Terong | Zenodo `10.5281/zenodo.15527092` | resolusi tinggi | **CC-BY-4.0** | Tidak jadi dipakai, dataset utama sudah memadai |
 
 **Temuan yang mengubah asumsi:** seluruh dataset yang layak pakai berisi foto daun tunggal berlatar polos, bukan foto kebun. Ini terdengar buruk, tetapi `5.2 US-07` justru menyuruh pengguna memotret dengan cara yang sama — satu daun, latar polos, cahaya cukup — sehingga celah domainnya jauh lebih sempit daripada kasus terburuk. Yang tetap wajib: mengukur pada foto lapangan asli dari demplot, sesuai aturan 2 di bawah.
 
 **Tiga aturan pelatihan yang tidak boleh dilanggar:**
 
-1. **Pisahkan latih, validasi, dan uji sebelum augmentasi, bukan sesudah.** Kalau dibalik, citra hasil augmentasi dari foto yang sama bisa muncul di latih dan uji sekaligus, dan akurasi validasi jadi indah tapi bohong. Ini kesalahan paling umum pada dataset pertanian yang sudah diaugmentasi penerbitnya.
+1. **Pisahkan latih, validasi, dan uji per gugus citra asli, bukan per berkas.** Kalau dipisahkan per berkas, citra hasil augmentasi dari foto yang sama bisa muncul di latih dan uji sekaligus, dan akurasi validasi jadi indah tapi bohong. Ini kesalahan paling umum pada dataset pertanian yang sudah diaugmentasi penerbitnya.
+
+   **Cara memeriksanya, sudah terbukti dipakai tiga kali:** hitung sidik perseptual tiap citra, kelompokkan yang sidiknya sama, lalu acak kelompoknya bukan berkasnya. Sidiknya wajib kebal putaran dan cerminan — ambil nilai terkecil dari 4 putaran dikali 2 cerminan — karena operasi utama sebagian besar perkakas augmentasi justru putaran dan cerminan, dan sidik rata-rata biasa tidak melihatnya. Sidik biasa melaporkan pencemaran dataset padi Zenodo hanya 4,2 persen; sidik kebal putaran melaporkan 10,9 persen ke uji dan 20,1 persen ke validasi.
+
+   Duplikat yang benar-benar sama persis dideteksi lebih dulu dengan MD5. Pada dataset padi yang dipakai, cara ini menemukan separuh berkasnya adalah salinan utuh dari pohon direktori yang sama.
 2. **Ukur pada himpunan uji lapangan yang terpisah.** Foto berlatar putih tidak mewakili pekarangan. Kumpulkan minimal 300 foto lapangan asli dari demplot tim dan dari peserta uji coba, dan jadikan itu ukuran sebenarnya.
 3. **Jangan pernah menampilkan satu label tunggal.** Tampilkan setiap dugaan yang keyakinannya di atas 0,10, maksimal tiga. Aturan lama "selalu tiga teratas" tidak lagi berlaku: dengan model Cabai yang hanya punya 3 kelas, "tiga teratas" berarti menampilkan seluruh isi model dan tidak menyampaikan informasi apa pun. Ambang "belum yakin" ada di 7.3.1.
 
@@ -454,6 +463,45 @@ Keputusan: **ambang umum 0,70**, dan **ambang khusus 0,85 untuk vonis `SEHAT`**.
 - **Angka 90,16 persen berasal dari 61 foto.** Satu foto salah menggeser akurasi sekitar 1,6 poin, jadi ketidakpastiannya besar dan harus disebutkan apa adanya saat presentasi.
 - **Belum pernah diuji pada foto lapangan asli.** Sampai aturan 2 dipenuhi, angka ini adalah akurasi pada kondisi laboratorium.
 
+#### 7.3.2 Hasil terukur, Terong v1.0.0
+
+Dilatih 14 Agustus 2026.
+
+| | |
+|---|---|
+| Kelas | `SEHAT`, `HAMA_SERANGGA`, `BERCAK_DAUN`, `VIRUS_MOSAIK`, `DAUN_KERDIL`, `EMBUN_TEPUNG_PUTIH`, `LAYU` — tujuh kelas |
+| Pembagian data | 966 latih, 204 validasi, 204 uji, dipisahkan per gugus bukan per berkas |
+| Akurasi validasi | 90,20 persen |
+| Akurasi uji | **86,27 persen** |
+| Ukuran berkas | **6,00 MB**, float 16 |
+| Masukan | 224 x 224, `float32`, piksel mentah 0 sampai 255 |
+| Kesepakatan Keras lawan TFLite | 99,51 persen, 203 dari 204 |
+| Ambang | umum 0,70, vonis `SEHAT` **0,90** |
+
+**Kenapa ambang sehatnya 0,90 dan bukan 0,85 seperti cabai.** Presisi kelas `SEHAT` hanya 0,700: lima daun bercak dan lima daun berembun tepung dinyatakan sehat. Sapuan ambang menunjukkan 0,90 adalah nilai terkecil yang membuat vonis-sehat-yang-salah menjadi nol. Ini bukti pertama bahwa ambang tidak boleh disamakan antar komoditas, dan alasan medan `healthyConfidenceThreshold` berada di manifes per model.
+
+#### 7.3.3 Hasil terukur, Padi v1.0.0
+
+Dilatih 15 sampai 16 Agustus 2026.
+
+| | |
+|---|---|
+| Kelas | `BERCAK_COKELAT`, `BLAS_DAUN`, `SEHAT` — **tiga kelas** |
+| Pembagian data | 1.955 latih, 418 validasi, 417 uji, dipisahkan per gugus |
+| Akurasi uji | **90,89 persen** |
+| Ukuran berkas | **5,99 MB**, float 16 |
+| Masukan | **320 x 320**, `float32`, piksel mentah 0 sampai 255 |
+| Ambang | umum 0,70, vonis `SEHAT` **0,90** |
+| Presisi per kelas | `BERCAK_COKELAT` 0,837, `BLAS_DAUN` 0,902, `SEHAT` 0,941 |
+
+**Kenapa masukannya 320 dan bukan 224.** Foto padi adalah rumpun utuh di lahan, bukan sehelai daun berlatar polos seperti cabai dan terong. Pada 224 piksel akurasi ujinya 76,45 persen; menaikkannya ke 320 tanpa mengubah apa pun yang lain menaikkannya ke 80,44 persen.
+
+**Kenapa `HAMA_HISPA` dibuang.** Kelas ini dilatih dua kali, pada 224 dan pada 320, dan jangkauannya tetap di 0,52 sampai 0,54. Sepertiga foto berlabel Hispa divonis `SEHAT` — arah kesalahan yang paling berbahaya. Dugaan awal bahwa detail goresannya hilang saat gambar diperkecil terbantah oleh percobaan 320, sehingga penyebabnya kemungkinan besar mutu anotasi, bukan resolusi. Membuangnya menaikkan akurasi keseluruhan dari 80,44 ke 90,89 persen.
+
+**Risiko sisa yang diakui.** Berbeda dari terong, tidak ada ambang yang membuat vonis-sehat-yang-salah menjadi nol. Pada 0,90 masih ada 3 dari 148 vonis `SEHAT` yang keliru, sekitar 2 persen. Menaikkan ambang ke 0,95 hanya menyelamatkan satu foto tambahan tetapi membuat 37 tanaman sehat kehilangan vonisnya, sehingga 0,90 dipilih dengan sadar.
+
+**Batas yang diakui terbuka.** Model padi hanya mengenali tiga kondisi. Tungro, hispa, hawar pelepah, hawar daun bakteri, dan lainnya tidak dikenali dan harus disebut apa adanya di antarmuka, sesuai aturan 3 di bawah.
+
 ### 7.4 Asisten AI dengan basis pengetahuan
 
 Alur lengkapnya:
@@ -461,21 +509,31 @@ Alur lengkapnya:
 ```
 Hasil klasifikasi + pertanyaan pengguna
   → Rakit konteks: komoditas, umur, 10 pindai terakhir, 6 pesan terakhir
-  → Ubah pertanyaan jadi vektor sematan
-  → Cari kemiripan di pgvector, ambil 6 potongan teratas
-  → Saring ulang, sisakan 3 potongan paling relevan
-  → Rakit perintah: konteks + potongan + pertanyaan
-  → Panggil model bahasa, alirkan jawaban
-  → Sertakan rujukan dari potongan yang dipakai
+  → Cari potongan dengan BM25 di layanan AI, ambil 8 teratas
+  → Rakit perintah: konteks + potongan bernomor + pertanyaan
+  → Panggil model bahasa; model sendiri yang membuang potongan tak relevan
+  → Jawaban wajib diakhiri "SUMBER: <nomor>"; tanpa itu ditolak oleh kode
+  → Sertakan rujukan hanya dari potongan yang benar-benar disebut
 ```
 
 | Komponen | Pilihan | Alasan |
 |---|---|---|
-| Model sematan | multilingual-e5-base | Mendukung bahasa Indonesia dengan baik, bisa dijalankan sendiri, tanpa biaya per panggilan |
-| Penyimpanan vektor | pgvector di Supabase | Satu instans basis data, indeks HNSW |
-| Ukuran potongan | 500 sampai 800 token, tumpang tindih 100 | Cukup panjang untuk konteks utuh, cukup pendek untuk presisi |
+| Pencarian potongan | BM25, ditulis sendiri di `app/pencarian.py` | Tanpa model, tanpa unduhan, memori layanan tinggal sekitar 200 MB |
+| Penyimpanan potongan | Tabel `RagChunk` di Supabase | Sudah ada, dibaca sekali saat layanan menyala lalu diindeks di memori |
+| Penyaring relevansi | Model bahasa itu sendiri | Potongan diberi nomor; yang tidak dipakai tidak disebut, dan itu terlihat dari sitasinya |
+| Ukuran potongan | 900 karakter, tumpang tindih 150, dipotong di batas kalimat | Cukup panjang untuk konteks utuh, cukup pendek untuk presisi |
 | Model bahasa | Rantai penyedia dengan cadangan berlapis | Kuota gratis berubah sewaktu-waktu |
 | Alur pengaliran | Server-Sent Events | Jawaban muncul kata demi kata, terasa jauh lebih cepat |
+
+**Kenapa tanpa penyematan.** Rancangan awal memakai `multilingual-e5-base` di atas pgvector. Rancangan itu dibuang setelah diuji, bukan karena sulit dipasang, melainkan karena tiga temuan berurutan.
+
+Pertama, skornya tidak memisahkan. Pada korpus ini seluruh skor kemiripan kosinus jatuh di rentang sempit 0,7798 sampai 0,8704 — termasuk pertanyaan "berapa harga pupuk urea sekarang" yang jawabannya sama sekali tidak ada di korpus, tetapi mendapat 0,8548 dan mengalahkan enam dari tujuh pertanyaan yang sah. Ambang berapa pun tidak bisa memisahkan keduanya.
+
+Kedua, penyaring ulang lintas-enkoder tidak memperbaikinya. Potongan yang benar untuk "blas daun" justru diberi 0,1245 dan tertolak, sementara pertanyaan urea yang di luar korpus lolos dengan 0,2651. Urutannya salah, jadi bukan soal menyetel ambang.
+
+Ketiga, menjalankan model penyemat sendiri butuh sekitar 1,5 GB memori, di atas batas 1 GB tempat penerapan gratis, dan tidak ada penyedia penyematan gratis berdimensi 768 yang bisa dipakai sebagai gantinya.
+
+BM25 tidak punya masalah itu: istilah agronomi seperti "blas", "kutu kebul", "layu fusarium" adalah kata langka yang justru diberi bobot tinggi oleh IDF. Pada korpus 193 potongan hasilnya setara, dan penilaian relevansi dipindahkan ke model bahasa yang memang bisa membaca. Kolom `RagChunk.embedding` tetap ada dan terisi vektor nol — skema milik migrasi Prisma tim backend, jadi tidak diubah dari luar, dan penyematan bisa dihidupkan lagi tanpa migrasi kalau korpusnya nanti membesar.
 
 **Rantai penyedia, dicoba berurutan, dikonfigurasi di basis data supaya bisa diganti tanpa penerapan ulang:**
 
@@ -511,6 +569,7 @@ Aturan kedua bukan sikap berhati-hati berlebihan. Anjuran dosis yang salah merug
 |---|---|---|
 | Panel admin | Next.js 14 dengan Refine di atas Supabase | Delapan alur admin sebagian besar CRUD dan antrean, Refine menyelesaikannya dalam hitungan hari |
 | Penerapan backend | Railway atau VPS | Penerapan sederhana, biaya terprediksi |
+| Penerapan layanan AI | Railway, kontainer Docker | Sekitar 200 MB, muat di batas memori 1 GB tingkat gratis |
 | Penerapan panel | Vercel | Tanpa biaya pada tingkat awal |
 | Integrasi berkelanjutan | GitHub Actions | Lint, uji, pembuatan APK, uji kebijakan keamanan baris |
 | Pelatihan model | Google Colab atau Kaggle Notebook | GPU gratis, cukup untuk pemindahan pembelajaran |
@@ -567,6 +626,8 @@ Biaya inferensi computer vision nol karena model berjalan di perangkat. Ini alas
 | Celah domain foto laboratorium ke foto lapangan | Akurasi jatuh dari 95 persen di validasi ke bawah 60 persen di lapangan | Tinggi | Diperkecil oleh desain: `5.2 US-07` menyuruh pengguna memotret satu daun berlatar polos, sama dengan cara dataset dibuat. Tetap wajib diukur pada himpunan uji lapangan terpisah dari demplot |
 | Kebocoran data karena augmentasi sebelum pemisahan | Akurasi terlihat bagus tapi palsu | Sedang | Pisahkan berdasarkan citra asli, bukan berdasarkan berkas. Ditulis di daftar periksa pelatihan. Pada dataset terong, folder `Augmented` dilarang dipakai dan hanya `Original Images` yang boleh masuk pelatihan |
 | **Kuantisasi merusak model tanpa gejala yang terlihat** | Semua metrik pelatihan tampak sehat, kerusakan baru muncul setelah model dipasang di perangkat | **Terjadi** | Terkonfirmasi: INT8 penuh menjatuhkan akurasi Cabai dari 90,2 ke 59,0 persen dan membuat model kebanyakan memvonis `SEHAT`. Mitigasi tetap: setiap berkas TFLite wajib diukur ulang pada himpunan uji setelah konversi, bukan dianggap sama dengan model asalnya |
+| **Mutu anotasi dataset publik tidak bisa dipercaya per kelas** | Satu kelas yang labelnya kacau menarik turun seluruh model, dan gejalanya menyerupai masalah teknis sehingga waktu habis untuk menyetel hal yang salah | **Terjadi** | Kelas `HAMA_HISPA` pada padi dilatih dua kali pada resolusi berbeda dan jangkauannya tetap 0,52. Mitigasi yang dipakai: buang kelasnya, bukan paksakan. Aturannya sekarang, kelas yang jangkauannya di bawah 0,60 setelah dua percobaan dikeluarkan dari rilis dan disebut apa adanya sebagai penyakit yang belum didukung |
+| **Ambang dan ukuran masukan berbeda antar komoditas** | Klien yang menanam satu angka untuk semua model akan salah memproses tanpa pesan galat apa pun | **Terjadi** | Terkonfirmasi: ambang `SEHAT` 0,85 pada cabai lawan 0,90 pada terong dan padi, dan ukuran masukan 224 lawan 320. Keduanya wajib dibaca dari manifes per model. Ditulis sebagai kriteria penerimaan di `5.2 US-07` |
 | Kurikulum tidak selesai | Konten kosong, produk tidak berguna | Tinggi | Dibatasi tiga Petak. Format kartu bukan video. Peninjau ahli diamankan minggu 1 |
 | Asisten memberi anjuran berbahaya | Pengguna rugi, tanggung jawab hukum | Sedang | Larangan dosis kimia dan merek dagang di perintah sistem, diuji dengan berkas uji adversarial |
 | RAG mengambil potongan tidak relevan lalu model mengarang | Jawaban terdengar meyakinkan tapi salah | Sedang | Ambang skor kemiripan, penyaringan ulang, instruksi menjawab tidak tahu, rujukan wajib ditampilkan |
@@ -621,7 +682,7 @@ A1 dan A2 adalah yang paling berbahaya. Kalau keduanya gagal, fitur inti kedua t
 | # | Pertanyaan | Butuh diputuskan sebelum |
 |---|---|---|
 | Q1 | Apakah forum butuh moderasi otomatis sejak awal atau cukup laporan manual? | Minggu 9 |
-| ~~Q2~~ | ~~Berapa ambang keyakinan yang tepat untuk menyatakan belum yakin?~~ **Terjawab 14 Agustus 2026: 0,70 umum, 0,85 khusus vonis `SEHAT`.** Dasar pengukurannya di 7.3.1. Ditinjau ulang setelah ada data uji lapangan | ~~Minggu 8~~ selesai |
+| ~~Q2~~ | ~~Berapa ambang keyakinan yang tepat untuk menyatakan belum yakin?~~ **Terjawab: 0,70 umum untuk seluruh komoditas. Ambang vonis `SEHAT` ternyata tidak bisa disamakan — cabai 0,85, terong 0,90, padi 0,90 — dan diturunkan dari sapuan ambang pada himpunan uji masing-masing model.** Dasar pengukurannya di 7.3.1, 7.3.2, dan 7.3.3. Ditinjau ulang setelah ada data uji lapangan | ~~Minggu 8~~ selesai |
 | Q3 | Apakah reputasi forum perlu memberi hak istimewa, misalnya moderasi terbatas? | Minggu 10 |
 | Q4 | Siapa menanggung risiko kalau anjuran asisten merugikan pengguna? | Sebelum Ketentuan Layanan terbit |
 
