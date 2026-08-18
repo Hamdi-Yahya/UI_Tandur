@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
@@ -6,7 +7,7 @@ import 'package:tandur/core/theme/app_typography.dart';
 /// Indikator XP (⚡)
 class XpIndicator extends StatelessWidget {
   final int xp;
-  
+
   const XpIndicator({super.key, required this.xp});
 
   @override
@@ -14,15 +15,11 @@ class XpIndicator extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          '⚡', 
-          style: TextStyle(fontSize: 16),
-          semanticsLabel: 'XP',
-        ),
+        const Text('💎', style: TextStyle(fontSize: 16)),
         const SizedBox(width: AppSpacing.xs),
         Text(
           xp.toString(),
-          style: AppTypography.judul.copyWith(color: AppColors.padi),
+          style: AppTypography.isiTebal.copyWith(color: AppColors.tanah),
         ),
       ],
     );
@@ -32,7 +29,7 @@ class XpIndicator extends StatelessWidget {
 /// Indikator Streak (🔥)
 class StreakIndicator extends StatelessWidget {
   final int streak;
-  
+
   const StreakIndicator({super.key, required this.streak});
 
   @override
@@ -40,56 +37,41 @@ class StreakIndicator extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          '🔥',
-          style: TextStyle(fontSize: 16),
-          semanticsLabel: 'Runtutan Hari',
-        ),
+        const Text('⚡', style: TextStyle(fontSize: 16)),
         const SizedBox(width: AppSpacing.xs),
         Text(
           streak.toString(),
-          style: AppTypography.judul.copyWith(color: AppColors.padi),
+          style: AppTypography.isiTebal.copyWith(color: AppColors.tanah),
         ),
       ],
     );
   }
 }
 
-/// Indikator Nyawa (🌶️ sebagai ganti Hati)
+/// Indikator Nyawa (❤️)
 class LivesIndicator extends StatelessWidget {
   final int lives;
-  final int maxLives;
-  
-  const LivesIndicator({
-    super.key, 
-    required this.lives,
-    this.maxLives = 5,
-  });
+
+  const LivesIndicator({super.key, required this.lives});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: List.generate(maxLives, (index) {
-        final isFilled = index < lives;
-        // Jika tidak filled, tampilkan warna abu atau opacity
-        return Padding(
-          padding: const EdgeInsets.only(right: 2.0),
-          child: Text(
-            '🌶️',
-            style: TextStyle(
-              fontSize: 16,
-              color: isFilled ? null : AppColors.garis, 
-            ),
-            semanticsLabel: isFilled ? 'Nyawa tersisa' : 'Nyawa kosong',
-          ),
-        );
-      }),
+      children: [
+        const Text('❤️', style: TextStyle(fontSize: 16)),
+        const SizedBox(width: AppSpacing.xs),
+        Text(
+          lives.toString(),
+          style: AppTypography.isiTebal.copyWith(color: AppColors.cabai),
+        ),
+      ],
     );
   }
 }
 
-/// Header Gamifikasi untuk Peta Kelas
+/// Header Gamifikasi utama dengan logo TANDUR di kiri dan stats di kanan.
+/// Sesuai desain referensi: "🌱 TANDUR" | ⚡12 💎1.240 ❤️5
 class GamificationHeader extends StatelessWidget {
   final int streak;
   final int xp;
@@ -106,23 +88,51 @@ class GamificationHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.l, 
+        horizontal: AppSpacing.l,
         vertical: AppSpacing.m,
       ),
-      decoration: const BoxDecoration(
-        color: AppColors.embun,
-        border: Border(
-          bottom: BorderSide(color: AppColors.garis, width: 1),
-        ),
-      ),
+      color: AppColors.embun,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          StreakIndicator(streak: streak),
-          XpIndicator(xp: xp),
-          LivesIndicator(lives: lives),
+          // Logo TANDUR di kiri
+          _buildLogo(),
+
+          const Spacer(),
+
+          // Stats gamifikasi di kanan
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              StreakIndicator(streak: streak),
+              const SizedBox(width: AppSpacing.m),
+              XpIndicator(xp: xp),
+              const SizedBox(width: AppSpacing.m),
+              LivesIndicator(lives: lives),
+            ],
+          ),
         ],
       ),
+    );
+  }
+
+  /// Membangun logo "🌱 TANDUR" di sisi kiri header.
+  Widget _buildLogo() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Ikon tunas tanaman
+        const Text('🌱', style: TextStyle(fontSize: 22)),
+        const SizedBox(width: AppSpacing.xs),
+        Text(
+          'TANDUR',
+          style: GoogleFonts.bricolageGrotesque(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: AppColors.daun,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
     );
   }
 }

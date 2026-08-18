@@ -105,7 +105,7 @@ class _QuizScreenState extends State<QuizScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m),
             child: Center(
-              child: LivesIndicator(lives: _lives, maxLives: 3),
+              child: LivesIndicator(lives: _lives),
             ),
           ),
         ],

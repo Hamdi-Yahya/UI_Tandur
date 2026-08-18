@@ -29,24 +29,25 @@ class KelasMockData {
   static const int currentLives = 5;
 
   // Learning Map Nodes (Cabai)
+  // Judul dibuat singkat sesuai label pada peta isometrik di desain.
   static const List<TerraceNode> cabaiNodes = [
     TerraceNode(
       id: 'c1',
-      title: 'Semai & Tanam',
+      title: 'Persiapan',
       code: 'C1',
       status: TerraceNodeStatus.completed,
       progress: 1.0,
     ),
     TerraceNode(
       id: 'c2',
-      title: 'Hama & Penyakit',
+      title: 'Hama',
       code: 'C2',
       status: TerraceNodeStatus.inProgress,
       progress: 0.6,
     ),
     TerraceNode(
       id: 'c3',
-      title: 'Panen & Pascapanen',
+      title: 'Panen',
       code: 'C3',
       status: TerraceNodeStatus.available,
       progress: 0.0,

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:tandur/core/theme/app_colors.dart';
+import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
 import 'package:tandur/features/kelas/data/kelas_mock_data.dart';
 
+/// Peta isometrik utama yang menampilkan gambar peta.png sebagai latar
+/// dan menempatkan node-node pembelajaran di atasnya menggunakan Stack + Positioned.
 class TerraceMap extends StatefulWidget {
   final List<TerraceNode> nodes;
   final ValueChanged<TerraceNode> onNodeTap;
@@ -17,9 +20,11 @@ class TerraceMap extends StatefulWidget {
   State<TerraceMap> createState() => _TerraceMapState();
 }
 
-class _TerraceMapState extends State<TerraceMap> with SingleTickerProviderStateMixin {
+class _TerraceMapState extends State<TerraceMap>
+    with SingleTickerProviderStateMixin {
+  /// Controller animasi pulse untuk node yang tersedia/sedang dikerjakan.
   late AnimationController _pulseController;
-  final TransformationController _transformationController = TransformationController();
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
@@ -28,51 +33,78 @@ class _TerraceMapState extends State<TerraceMap> with SingleTickerProviderStateM
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    
-    // Zoom slightly out initially and pan to bottom
-    final matrix = Matrix4.diagonal3Values(0.75, 0.75, 1.0);
-    // Pan to the bottom so the first node is visible
-    matrix.setTranslationRaw(-150.0, -300.0, 0.0);
-    _transformationController.value = matrix;
+
+    _pulseAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
-    _transformationController.dispose();
     super.dispose();
+  }
+
+  /// Hitung posisi relatif (0.0–1.0) untuk setiap node di atas gambar peta.
+  /// Posisi disesuaikan secara visual agar cocok dengan topografi gambar peta.png.
+  /// Sumbu Y dimulai dari atas (0.0) ke bawah (1.0).
+  /// Sumbu X dimulai dari kiri (0.0) ke kanan (1.0).
+  List<Offset> _getNodeRelativePositions(int nodeCount) {
+    // Posisi default untuk hingga 4 node, mengikuti jalur peta dari atas ke bawah.
+    const defaultPositions = [
+      Offset(0.47, 0.28), // Node 1: area teratas (ladang atas)
+      Offset(0.38, 0.52), // Node 2: area tengah (ladang tengah)
+      Offset(0.48, 0.75), // Node 3: area bawah (sawah/panen)
+      Offset(0.30, 0.88), // Node 4: area paling bawah
+    ];
+    return defaultPositions.take(nodeCount).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final positions = _getNodeRelativePositions(widget.nodes.length);
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        return InteractiveViewer(
-          transformationController: _transformationController,
-          minScale: 0.8,
-          maxScale: 1.6,
-          constrained: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: constraints.maxWidth,
-              minHeight: constraints.maxHeight,
-            ),
-            child: AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, child) {
-                return GestureDetector(
-                  onTapUp: (details) {
-                    _handleTap(details.localPosition);
-                  },
-                  child: CustomPaint(
-                    size: const Size(800, 1000), // Map size
-                    painter: TerraceMapPainter(
-                      nodes: widget.nodes,
-                      pulseAnimation: _pulseController,
+        return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: SizedBox(
+            width: constraints.maxWidth,
+            // Tinggi konten sedikit lebih besar dari layar agar bisa di-scroll sedikit
+            height: constraints.maxHeight * 1.05,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // --- Layer 1: Gambar peta isometrik sebagai latar ---
+                _buildMapBackground(constraints),
+
+                // --- Layer 2: Node-node pembelajaran di atas peta ---
+                ...List.generate(widget.nodes.length, (index) {
+                  final node = widget.nodes[index];
+                  final relPos = positions[index];
+
+                  // Konversi posisi relatif ke piksel aktual
+                  final left =
+                      relPos.dx * constraints.maxWidth - _nodeHalfWidth;
+                  final top =
+                      relPos.dy * constraints.maxHeight * 1.05 - _nodeHalfHeight;
+
+                  return Positioned(
+                    left: left,
+                    top: top,
+                    child: AnimatedBuilder(
+                      animation: _pulseAnimation,
+                      builder: (context, child) {
+                        return _MapNode(
+                          node: node,
+                          pulseScale: _pulseAnimation.value,
+                          onTap: () => widget.onNodeTap(node),
+                        );
+                      },
                     ),
-                  ),
-                );
-              },
+                  );
+                }),
+              ],
             ),
           ),
         );
@@ -80,224 +112,242 @@ class _TerraceMapState extends State<TerraceMap> with SingleTickerProviderStateM
     );
   }
 
-  void _handleTap(Offset localPosition) {
-    final nodePositions = TerraceMapPainter.calculateNodePositions(widget.nodes);
-    
-    for (int i = 0; i < widget.nodes.length; i++) {
-      final node = widget.nodes[i];
-      final pos = nodePositions[i];
-      
-      // Node dimension approx 200x92 based on DESAIN
-      final rect = Rect.fromCenter(center: pos, width: 220, height: 100);
-      
-      if (rect.contains(localPosition)) {
-        widget.onNodeTap(node);
-        break;
-      }
+  /// Lebar setengah dari node untuk centering horizontal.
+  double get _nodeHalfWidth => 60.0;
+
+  /// Tinggi setengah dari node untuk centering vertikal.
+  double get _nodeHalfHeight => 45.0;
+
+  /// Membangun latar gambar peta isometrik.
+  Widget _buildMapBackground(BoxConstraints constraints) {
+    return Positioned.fill(
+      child: Padding(
+        // Beri sedikit padding horizontal agar peta tidak terlalu mepet tepi
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+        child: Image.asset(
+          'assets/illustrations/peta.png',
+          fit: BoxFit.contain,
+          alignment: Alignment.topCenter,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Widget: _MapNode
+// Menampilkan satu node pada peta dengan ikon, label, dan progress bar.
+// ---------------------------------------------------------------------------
+
+class _MapNode extends StatelessWidget {
+  final TerraceNode node;
+  final double pulseScale;
+  final VoidCallback onTap;
+
+  const _MapNode({
+    required this.node,
+    required this.pulseScale,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Ikon utama node (lingkaran)
+          _buildNodeCircle(),
+
+          const SizedBox(height: AppSpacing.xs),
+
+          // Label nama node
+          _buildNodeLabel(),
+
+          // Progress bar untuk node yang sedang dikerjakan
+          if (node.status == TerraceNodeStatus.inProgress)
+            _buildProgressBar(),
+        ],
+      ),
+    );
+  }
+
+  /// Membangun lingkaran ikon utama node dengan efek scale pulse.
+  Widget _buildNodeCircle() {
+    final config = _getNodeConfig();
+
+    return Transform.scale(
+      scale: _shouldPulse ? pulseScale : 1.0,
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: config.circleColor,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: config.borderColor,
+            width: 3,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: config.borderColor.withValues(alpha: 0.35),
+              blurRadius: 12,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Center(
+          child: _buildNodeIcon(config),
+        ),
+      ),
+    );
+  }
+
+  /// Membangun ikon di dalam lingkaran node berdasarkan status.
+  Widget _buildNodeIcon(_NodeConfig config) {
+    if (node.status == TerraceNodeStatus.inProgress) {
+      // Tampilkan ikon karakter traktor (emoji) untuk node yang sedang dikerjakan
+      return const Text('🚜', style: TextStyle(fontSize: 22));
+    }
+
+    return Icon(
+      config.icon,
+      color: config.iconColor,
+      size: 26,
+    );
+  }
+
+  /// Membangun label teks di bawah node dengan kontainer semi-transparan.
+  Widget _buildNodeLabel() {
+    final config = _getNodeConfig();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s,
+        vertical: 3,
+      ),
+      decoration: BoxDecoration(
+        color: config.labelBgColor,
+        borderRadius: BorderRadius.circular(AppRadius.penuh),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        node.title,
+        style: AppTypography.label.copyWith(
+          color: config.labelTextColor,
+          letterSpacing: 0.2,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  /// Membangun progress bar kecil di bawah label untuk node inProgress.
+  Widget _buildProgressBar() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: SizedBox(
+        width: 80,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.penuh),
+          child: LinearProgressIndicator(
+            value: node.progress,
+            minHeight: 5,
+            backgroundColor: Colors.white.withValues(alpha: 0.6),
+            color: AppColors.daun,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Menentukan apakah node ini harus menampilkan animasi pulse.
+  bool get _shouldPulse =>
+      node.status == TerraceNodeStatus.available ||
+      node.status == TerraceNodeStatus.inProgress;
+
+  /// Mengembalikan konfigurasi visual berdasarkan status node.
+  _NodeConfig _getNodeConfig() {
+    switch (node.status) {
+      case TerraceNodeStatus.completed:
+        return _NodeConfig(
+          circleColor: AppColors.airDalam,
+          borderColor: AppColors.air,
+          icon: Icons.check_rounded,
+          iconColor: Colors.white,
+          labelBgColor: Colors.white,
+          labelTextColor: AppColors.tanah,
+        );
+
+      case TerraceNodeStatus.perfect:
+        return _NodeConfig(
+          circleColor: AppColors.padi,
+          borderColor: const Color(0xFFF5C842),
+          icon: Icons.star_rounded,
+          iconColor: Colors.white,
+          labelBgColor: Colors.white,
+          labelTextColor: AppColors.tanah,
+        );
+
+      case TerraceNodeStatus.inProgress:
+        return _NodeConfig(
+          circleColor: Colors.white.withValues(alpha: 0.85),
+          borderColor: AppColors.daun,
+          icon: Icons.person,
+          iconColor: AppColors.daun,
+          labelBgColor: AppColors.daun,
+          labelTextColor: Colors.white,
+        );
+
+      case TerraceNodeStatus.available:
+        return _NodeConfig(
+          circleColor: Colors.white.withValues(alpha: 0.80),
+          borderColor: AppColors.daunMuda,
+          icon: Icons.eco_rounded,
+          iconColor: AppColors.daun,
+          labelBgColor: Colors.white,
+          labelTextColor: AppColors.tanah,
+        );
+
+      case TerraceNodeStatus.locked:
+        return _NodeConfig(
+          circleColor: const Color(0xFFD8DBD3),
+          borderColor: AppColors.garis,
+          icon: Icons.lock_rounded,
+          iconColor: AppColors.tanahSamar,
+          labelBgColor: const Color(0xFFEDEFEA),
+          labelTextColor: AppColors.tanahSamar,
+        );
     }
   }
 }
 
-class TerraceMapPainter extends CustomPainter {
-  final List<TerraceNode> nodes;
-  final Animation<double> pulseAnimation;
+// ---------------------------------------------------------------------------
+// Helper: _NodeConfig
+// Data class untuk menyimpan konfigurasi visual sebuah node peta.
+// ---------------------------------------------------------------------------
 
-  TerraceMapPainter({
-    required this.nodes,
-    required this.pulseAnimation,
+class _NodeConfig {
+  final Color circleColor;
+  final Color borderColor;
+  final IconData icon;
+  final Color iconColor;
+  final Color labelBgColor;
+  final Color labelTextColor;
+
+  const _NodeConfig({
+    required this.circleColor,
+    required this.borderColor,
+    required this.icon,
+    required this.iconColor,
+    required this.labelBgColor,
+    required this.labelTextColor,
   });
-
-  // Calculate layout for nodes. Bottom to top, zig-zag.
-  static List<Offset> calculateNodePositions(List<TerraceNode> nodes) {
-    List<Offset> positions = [];
-    double currentY = 800.0; // Start near bottom
-    double centerX = 400.0; // Center of 800 width
-
-    for (int i = 0; i < nodes.length; i++) {
-      // Zig zag X
-      double xOffset = (i % 2 == 0) ? -40.0 : 40.0;
-      positions.add(Offset(centerX + xOffset, currentY));
-      currentY -= 140.0; // Spacing between rows
-    }
-    return positions;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final nodePositions = calculateNodePositions(nodes);
-
-    for (int i = 0; i < nodes.length; i++) {
-      final node = nodes[i];
-      final center = nodePositions[i];
-      
-      _drawNode(canvas, node, center, i);
-    }
-  }
-
-  void _drawNode(Canvas canvas, TerraceNode node, Offset center, int index) {
-    // Draw polygon
-    final path = Path();
-    
-    // Vary the shape slightly based on index
-    final width = 200.0 + (index % 3) * 10; 
-    final height = 92.0;
-    final topOffset = (index % 2 == 0) ? 20.0 : -20.0;
-    final bottomOffset = (index % 2 == 0) ? -15.0 : 15.0;
-
-    path.moveTo(center.dx - width/2 + topOffset + 10, center.dy - height/2); // Top left
-    path.lineTo(center.dx + width/2 + topOffset - 10, center.dy - height/2); // Top right
-    // Top right corner curve (simplified by just letting path be sharp for now, or using arcTo if needed. 
-    // To keep it simple but better proportioned:
-    path.lineTo(center.dx + width/2 + bottomOffset, center.dy + height/2); // Bottom right
-    path.lineTo(center.dx - width/2 + bottomOffset, center.dy + height/2); // Bottom left
-    path.close();
-
-    // Determine colors and borders based on state
-    Color fillColor;
-    Color borderColor;
-    double borderWidth = 1.0;
-
-    switch (node.status) {
-      case TerraceNodeStatus.locked:
-        fillColor = const Color(0xFFE8EAE4);
-        borderColor = AppColors.garis;
-        break;
-      case TerraceNodeStatus.available:
-        // Pulsate opacity
-        fillColor = AppColors.daunSamar.withValues(alpha: 0.6 + (0.4 * pulseAnimation.value));
-        borderColor = AppColors.daun;
-        borderWidth = 2.0;
-        break;
-      case TerraceNodeStatus.inProgress:
-        fillColor = AppColors.daunSamar;
-        borderColor = AppColors.daun;
-        borderWidth = 2.0;
-        break;
-      case TerraceNodeStatus.completed:
-        fillColor = AppColors.air; // Simplification of gradient
-        borderColor = AppColors.airDalam;
-        borderWidth = 1.0;
-        break;
-      case TerraceNodeStatus.perfect:
-        fillColor = AppColors.air;
-        borderColor = AppColors.padi;
-        borderWidth = 2.0;
-        break;
-    }
-
-    // Fill
-    final fillPaint = Paint()
-      ..color = fillColor
-      ..style = PaintingStyle.fill;
-    canvas.drawPath(path, fillPaint);
-
-    // Stroke
-    final strokePaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = borderWidth;
-    canvas.drawPath(path, strokePaint);
-
-    // Text & Icons
-    _drawNodeContent(canvas, node, center);
-  }
-
-  void _drawNodeContent(Canvas canvas, TerraceNode node, Offset center) {
-    // Code text (C1, T2)
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: node.code,
-        style: AppTypography.tampilanKecil.copyWith(
-          color: node.status == TerraceNodeStatus.locked 
-              ? AppColors.tanahSamar 
-              : AppColors.tanah,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas, 
-      Offset(center.dx - textPainter.width/2, center.dy - textPainter.height/2 - 10),
-    );
-    
-    // Status Icon
-    IconData? icon;
-    Color? iconColor;
-    if (node.status == TerraceNodeStatus.locked) {
-      icon = Icons.lock;
-      iconColor = AppColors.tanahSamar;
-    } else if (node.status == TerraceNodeStatus.completed || node.status == TerraceNodeStatus.perfect) {
-      icon = Icons.check;
-      iconColor = node.status == TerraceNodeStatus.perfect ? AppColors.padi : AppColors.kertas;
-    }
-    
-    if (icon != null) {
-      final iconPainter = TextPainter(
-        text: TextSpan(
-          text: String.fromCharCode(icon.codePoint),
-          style: TextStyle(
-            fontSize: 20,
-            fontFamily: icon.fontFamily,
-            color: iconColor,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      iconPainter.layout();
-      iconPainter.paint(canvas, Offset(center.dx - iconPainter.width/2, center.dy + 5));
-    }
-    
-    // Character / Progress for inProgress
-    if (node.status == TerraceNodeStatus.inProgress) {
-      // Draw progress bar
-      final barWidth = 80.0;
-      final barRect = Rect.fromLTWH(center.dx - barWidth/2, center.dy + 15, barWidth, 6);
-      
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(barRect, const Radius.circular(3)),
-        Paint()..color = AppColors.garis,
-      );
-      
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(center.dx - barWidth/2, center.dy + 15, barWidth * node.progress, 6),
-          const Radius.circular(3),
-        ),
-        Paint()..color = AppColors.daun,
-      );
-      
-      // Karakter pengguna berdiri di Petak yang sedang dikerjakan (DESAIN.md
-      // §4.2). Belum ada aset karakter final, jadi dipakai penanda pin bulat
-      // -- bukan lagi teks debug mentah di atas kanvas produksi.
-      final markerCenter = Offset(center.dx + 40, center.dy - 30);
-      canvas.drawCircle(markerCenter, 14, Paint()..color = AppColors.kertas);
-      canvas.drawCircle(
-        markerCenter,
-        14,
-        Paint()
-          ..color = AppColors.daun
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      final personPainter = TextPainter(
-        text: TextSpan(
-          text: String.fromCharCode(Icons.person.codePoint),
-          style: TextStyle(fontSize: 16, fontFamily: Icons.person.fontFamily, color: AppColors.daun),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      personPainter.layout();
-      personPainter.paint(
-        canvas,
-        Offset(markerCenter.dx - personPainter.width / 2, markerCenter.dy - personPainter.height / 2),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant TerraceMapPainter oldDelegate) {
-    return oldDelegate.pulseAnimation.value != pulseAnimation.value ||
-           oldDelegate.nodes != nodes;
-  }
 }

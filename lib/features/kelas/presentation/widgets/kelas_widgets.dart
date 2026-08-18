@@ -4,7 +4,8 @@ import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
 import 'package:tandur/features/kelas/data/kelas_mock_data.dart';
 
-/// Tab untuk memilih komoditas di Peta Kelas
+/// Tab untuk memilih komoditas di Peta Kelas.
+/// Tab yang dipilih: pill hitam/gelap. Tab lain: transparan dengan teks abu.
 class CommodityTabs extends StatelessWidget {
   final String selectedCommodity;
   final ValueChanged<String> onSelected;
@@ -14,6 +15,13 @@ class CommodityTabs extends StatelessWidget {
     required this.selectedCommodity,
     required this.onSelected,
   });
+
+  /// Pemetaan komoditas ke emoji yang ditampilkan di dalam tab.
+  static const Map<String, String> _commodityEmojis = {
+    'Cabai': '🌶️',
+    'Terong': '🍆',
+    'Padi': '🌾',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -26,41 +34,41 @@ class CommodityTabs extends StatelessWidget {
         vertical: AppSpacing.s,
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        mainAxisAlignment: MainAxisAlignment.start,
         children: commodities.map((commodity) {
           final isSelected = selectedCommodity == commodity;
-          
-          return InkWell(
-            onTap: () => onSelected(commodity),
-            borderRadius: BorderRadius.circular(AppRadius.penuh),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.m,
-                vertical: AppSpacing.s,
-              ),
-              decoration: BoxDecoration(
-                color: isSelected ? AppColors.daunSamar : Colors.transparent,
-                borderRadius: BorderRadius.circular(AppRadius.penuh),
-                border: isSelected 
-                    ? Border.all(color: AppColors.daun, width: 2)
-                    : Border.all(color: Colors.transparent, width: 2),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                    size: 16,
-                    color: isSelected ? AppColors.daun : AppColors.tanahSamar,
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    commodity,
-                    style: AppTypography.isiTebal.copyWith(
-                      color: isSelected ? AppColors.tanah : AppColors.tanahSamar,
+          final emoji = _commodityEmojis[commodity] ?? '';
+
+          return Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.s),
+            child: GestureDetector(
+              onTap: () => onSelected(commodity),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.m,
+                  vertical: AppSpacing.s,
+                ),
+                decoration: BoxDecoration(
+                  // Tab terpilih: pill hitam pekat. Lainnya: transparan.
+                  color: isSelected ? AppColors.tanah : Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppRadius.penuh),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(emoji, style: const TextStyle(fontSize: 14)),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      commodity,
+                      style: AppTypography.isiTebal.copyWith(
+                        color: isSelected ? AppColors.kertas : AppColors.tanahSamar,
+                        fontSize: 14,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );

@@ -104,7 +104,7 @@ class _FinalTestScreenState extends State<FinalTestScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m),
             child: Center(
-              child: LivesIndicator(lives: _lives, maxLives: 3),
+              child: LivesIndicator(lives: _lives),
             ),
           ),
         ],
