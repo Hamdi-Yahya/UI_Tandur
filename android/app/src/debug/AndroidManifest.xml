@@ -5,6 +5,6 @@
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- HTTP polos (http://10.0.2.2:3000) untuk dev; backend TANDUR dev pakai http.
-         Hanya di varian debug -- lihat CATATAN_FE_FLUTTER.md bagian 1. -->
+         Hanya di varian debug - lihat CATATAN_FE_FLUTTER.md bagian 1. -->
     <application android:usesCleartextTraffic="true" tools:ignore="UnusedAttribute" xmlns:tools="http://schemas.android.com/tools"/>
 </manifest>

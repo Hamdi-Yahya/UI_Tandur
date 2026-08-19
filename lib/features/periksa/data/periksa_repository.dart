@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -133,6 +134,24 @@ class PeriksaRepository {
           },
         ));
     return SignedUploadUrl.fromJson((res.data as Map).cast<String, dynamic>());
+  }
+
+  /// PUT bytes langsung ke [uploadUrl] bertanda tangan Supabase Storage
+  /// (alur API_DOCS §4.4: signed-url lalu PUT, bukan multipart). Host luar,
+  /// tidak beramplop — respons apa pun diteruskan apa adanya.
+  Future<void> uploadImageBytes(
+    String uploadUrl,
+    Uint8List bytes, {
+    String contentType = 'image/jpeg',
+  }) async {
+    await guardApi(() => _dio.put(
+          uploadUrl,
+          data: bytes,
+          options: Options(
+            headers: {'Content-Type': contentType},
+            responseType: ResponseType.plain,
+          ),
+        ));
   }
 
   /// POST /api/scans. [imageUrl] wajib ada di body; isi dengan '' sampai

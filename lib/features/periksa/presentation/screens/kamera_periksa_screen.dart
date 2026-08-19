@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/network/app_enums.dart';
 import 'package:tandur/core/theme/app_colors.dart';
@@ -12,14 +14,14 @@ import 'package:tandur/features/periksa/data/periksa_models.dart';
 import 'package:tandur/features/periksa/data/periksa_repository.dart';
 
 /// Layar kamera Periksa Tanaman — DESAIN.md §4.5. "Layar paling sunyi di
-/// aplikasi", hampir tanpa warna. Pratinjau kamera diganti placeholder karena
-/// belum ada dependency kamera/kompresi gambar; inferensi TFLite juga masih
-/// simulasi (PRD §7.3). Alur nyata yang tersambung: ambil manifest model
-/// per komoditas, kirim `POST /api/scans`, lalu buka hasil pindainya.
+/// aplikasi", hampir tanpa warna. Alur nyata yang tersambung: ambil manifest
+/// model per komoditas, foto dari kamera/galeri, unggah ke Supabase Storage
+/// lewat `POST /api/uploads/signed-url` + PUT bytes (API_DOCS §4.4), kirim
+/// `POST /api/scans`, lalu buka hasil pindainya. Inferensi TFLite masih
+/// simulasi (PRD §7.3) sampai model on-device masuk.
 ///
 /// Batas simpan 30 pindai/hari dan 404 `MODEL_NOT_AVAILABLE` ditangani di
-/// sini; foto (unggah `POST /api/uploads/signed-url` + PUT bytes) menyusul
-/// saat kamera sungguhan masuk.
+/// sini; file > 5 MB ditolak lebih dulu (batas backend, API_DOCS §4.4).
 class KameraPeriksaScreen extends ConsumerStatefulWidget {
   const KameraPeriksaScreen({super.key});
 
@@ -33,9 +35,11 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
     'Pastikan gejala terlihat jelas di tengah bingkai',
     'Ambil dari jarak dekat, bukan seluruh rumpun',
   ];
+  static const _maxBytes = 5 * 1024 * 1024;
 
   List<Plant> _plants = const [];
   Plant? _selectedPlant;
+  XFile? _foto;
   int _tipIndex = 0;
   bool _isProcessing = false;
   Timer? _timer;
@@ -95,7 +99,7 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
     );
   }
 
-  Future<void> _ambilFoto() async {
+  Future<void> _ambilFoto(ImageSource source) async {
     if (_isProcessing) return;
     final plant = _selectedPlant;
     if (plant == null) {
@@ -106,13 +110,48 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
       return;
     }
 
-    setState(() => _isProcessing = true);
+    final XFile? foto;
+    try {
+      foto = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+    } on Exception {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Kamera tidak tersedia. Coba dari galeri.')),
+      );
+      return;
+    }
+    if (foto == null || !mounted) return;
+
+    final bytes = await foto.readAsBytes();
+    if (bytes.length > _maxBytes) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto terlalu besar (maksimal 5 MB).')),
+      );
+      return;
+    }
+
+    setState(() {
+      _foto = foto;
+      _isProcessing = true;
+    });
     try {
       final repo = ref.read(periksaRepositoryProvider);
       final manifest = await repo.getModelManifest(Commodity.fromApi(plant.commodity));
+      final signed = await repo.getSignedUploadUrl(
+        purpose: UploadPurpose.scan,
+        contentType: 'image/jpeg',
+        sizeBytes: bytes.length,
+      );
+      await repo.uploadImageBytes(signed.uploadUrl, bytes);
       final predictions = _simulasiInferensi(plant.commodity, manifest.labels);
       final scan = await repo.saveScan(
         plantId: plant.plantId,
+        imageUrl: signed.fileUrl,
         modelVersion: manifest.version,
         inferenceMs: 800,
         predictions: predictions,
@@ -195,16 +234,35 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
                   aspectRatio: 3 / 4,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-                    child: _isProcessing
-                        ? const Center(
-                            child: CircularProgressIndicator(color: Colors.white),
-                          )
-                        : CustomPaint(
-                            painter: _DashedFramePainter(),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.sedang),
+                          child: _foto == null
+                              ? const Center(
+                                  child: Icon(Icons.eco_outlined, color: Colors.white24, size: 64),
+                                )
+                              : Image.file(
+                                  File(_foto!.path),
+                                  fit: BoxFit.cover,
+                                ),
+                        ),
+                        IgnorePointer(
+                          child: CustomPaint(painter: _DashedFramePainter()),
+                        ),
+                        if (_isProcessing)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(AppRadius.sedang),
+                            ),
                             child: const Center(
-                              child: Icon(Icons.eco_outlined, color: Colors.white24, size: 64),
+                              child: CircularProgressIndicator(color: Colors.white),
                             ),
                           ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -226,9 +284,13 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _ActionIcon(icon: Icons.photo_library_outlined, label: 'galeri', onTap: _ambilFoto),
+                  _ActionIcon(
+                    icon: Icons.photo_library_outlined,
+                    label: 'galeri',
+                    onTap: () => _ambilFoto(ImageSource.gallery),
+                  ),
                   GestureDetector(
-                    onTap: _ambilFoto,
+                    onTap: () => _ambilFoto(ImageSource.camera),
                     child: Container(
                       width: 72,
                       height: 72,
