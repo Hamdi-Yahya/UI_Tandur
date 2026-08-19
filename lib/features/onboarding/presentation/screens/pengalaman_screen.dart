@@ -1,44 +1,70 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
+import 'package:tandur/features/onboarding/data/onboarding_repository.dart';
 
 /// Screen 6 — Pertanyaan Pengalaman.
 /// Menanyakan apakah pengguna sudah atau belum pernah menanam.
+/// Saat selesai, preferensi dikirim ke POST /api/onboarding/complete dan
+/// pengguna diarahkan ke `startRoute` dari respons backend.
 /// Referensi: PRD.md US-00.
-class PengalamanScreen extends StatefulWidget {
+class PengalamanScreen extends ConsumerStatefulWidget {
   final List<String> selectedCommodities;
 
   const PengalamanScreen({super.key, required this.selectedCommodities});
 
   @override
-  State<PengalamanScreen> createState() => _PengalamanScreenState();
+  ConsumerState<PengalamanScreen> createState() => _PengalamanScreenState();
 }
 
-class _PengalamanScreenState extends State<PengalamanScreen> {
+class _PengalamanScreenState extends ConsumerState<PengalamanScreen> {
   String? _pilihan; // 'belum' | 'sudah'
+  bool _isSubmitting = false;
 
   void _pilih(String value) {
     HapticFeedback.selectionClick();
     setState(() => _pilihan = value);
   }
 
-  void _lanjut() {
-    if (_pilihan == null) return;
+  Future<void> _lanjut() async {
+    if (_pilihan == null || _isSubmitting) return;
     HapticFeedback.lightImpact();
+    setState(() => _isSubmitting = true);
+    try {
+      final result = await ref.read(onboardingRepositoryProvider).completeOnboarding(
+            commodities: widget.selectedCommodities,
+            hasFarmed: _pilihan == 'sudah',
+          );
+      if (!mounted) return;
+      context.go(_routeTujuan(result.startRoute));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
 
-    // PRD US-00:
-    // "Belum pernah" → Level 1 komoditas pilihan
-    // "Sudah pernah" → layar Tanaman Saya
-    if (_pilihan == 'belum') {
-      // Fitur Kelas belum dibuat → placeholder route aman
-      context.go('/kelas');
-    } else {
-      // Fitur Tanaman Saya belum dibuat → placeholder route aman
-      context.go('/periksa/tanaman');
+  /// Peta `startRoute` dari backend ke route yang dikenal aplikasi.
+  /// Route tidak dikenal dianggap kosong → fallback ke Kelas.
+  String _routeTujuan(String startRoute) {
+    switch (startRoute) {
+      case '/kelas':
+      case '/periksa':
+      case '/periksa/tanaman':
+      case '/warung':
+      case '/saya':
+        return startRoute;
+      default:
+        return '/kelas';
     }
   }
 
@@ -117,6 +143,7 @@ class _PengalamanScreenState extends State<PengalamanScreen> {
                     PrimaryButton(
                       label: 'Mulai',
                       onPressed: _pilihan != null ? _lanjut : null,
+                      isLoading: _isSubmitting,
                     ),
                   ],
                 ),

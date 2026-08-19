@@ -54,14 +54,34 @@ class _TerraceMapState extends State<TerraceMap>
   /// Sumbu Y: 0.0 = atas, 1.0 = bawah.
   /// Sumbu X: 0.0 = kiri, 1.0 = kanan — dari lebar penuh widget (inklusif padding).
   List<Offset> _getNodeRelativePositions(int nodeCount) {
-    // Posisi mengikuti teras dari paling atas (ladang atas) ke paling bawah.
-    // X sedikit lebih besar dari tengah (0.50) karena gambar peta condong ke kiri-tengah.
-    // Y dikunci agar tidak melebihi 0.90 supaya node terakhir tidak keluar gambar.
+    if (nodeCount == 1) {
+      return const [Offset(0.50, 0.40)];
+    }
+    if (nodeCount == 2) {
+      // 2 nodes (e.g. Terong & Padi): Tersebar proporsional di teras atas dan tengah-bawah
+      return const [
+        Offset(0.52, 0.22), // Teras atas
+        Offset(0.44, 0.58), // Teras tengah-bawah
+      ];
+    }
+    if (nodeCount == 3) {
+      return const [
+        Offset(0.52, 0.18), // Teras atas
+        Offset(0.32, 0.44), // Teras tengah kiri
+        Offset(0.62, 0.70), // Teras bawah kanan
+      ];
+    }
+    // 4 nodes (e.g. Cabai) & default:
+    // Pola S-curve alami mengikuti terasering pulau isometrik:
+    // Node 1: Teras teratas tengah (greenhouse / kebun atas)
+    // Node 2: Teras tengah kiri (pondok / kebun kiri)
+    // Node 3: Teras tengah kanan (ladang cabai merah / kincir air)
+    // Node 4: Teras terbawah kiri (sawah bertingkat bawah)
     const defaultPositions = [
-      Offset(0.60, 0.23), // Node 1 — teras teratas, ladang atas-tengah
-      Offset(0.42, 0.46), // Node 2 — teras kedua, ladang tengah kiri
-      Offset(0.52, 0.67), // Node 3 — teras ketiga, sawah panen
-      Offset(0.38, 0.84), // Node 4 — teras terbawah, masih di dalam gambar
+      Offset(0.52, 0.16), // Node 1 — teras teratas
+      Offset(0.30, 0.36), // Node 2 — teras tengah kiri
+      Offset(0.66, 0.56), // Node 3 — teras tengah kanan
+      Offset(0.36, 0.76), // Node 4 — teras terbawah kiri
     ];
     return defaultPositions.take(nodeCount).toList();
   }
@@ -155,7 +175,7 @@ class _TerraceMapState extends State<TerraceMap>
 
 // ---------------------------------------------------------------------------
 // Widget: _MapNode
-// Menampilkan satu node pada peta dengan ikon, label, dan progress bar.
+// Menampilkan satu node pada peta dengan ikon, label, dan circular progress.
 // ---------------------------------------------------------------------------
 
 class _MapNode extends StatelessWidget {
@@ -176,48 +196,67 @@ class _MapNode extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Ikon utama node (lingkaran)
+          // Ikon utama node (lingkaran + circular progress terintegrasi)
           _buildNodeCircle(),
 
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: 6),
 
           // Label nama node
           _buildNodeLabel(),
-
-          // Progress bar untuk node yang sedang dikerjakan
-          if (node.status == TerraceNodeStatus.inProgress)
-            _buildProgressBar(),
         ],
       ),
     );
   }
 
-  /// Membangun lingkaran ikon utama node dengan efek scale pulse.
+  /// Membangun lingkaran ikon utama node dengan efek scale pulse & circular progress ring.
   Widget _buildNodeCircle() {
     final config = _getNodeConfig();
+    final isInProgress = node.status == TerraceNodeStatus.inProgress;
 
     return Transform.scale(
       scale: _shouldPulse ? pulseScale : 1.0,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          color: config.circleColor,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: config.borderColor,
-            width: 3,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: config.borderColor.withValues(alpha: 0.35),
-              blurRadius: 12,
-              spreadRadius: 2,
+      child: SizedBox(
+        width: 66,
+        height: 66,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Circular progress indicator untuk node yang sedang dikerjakan
+            if (isInProgress)
+              SizedBox(
+                width: 66,
+                height: 66,
+                child: CircularProgressIndicator(
+                  value: node.progress,
+                  strokeWidth: 3.5,
+                  backgroundColor: AppColors.daunSamar,
+                  valueColor: const AlwaysStoppedAnimation<Color>(AppColors.daun),
+                ),
+              ),
+            // Lingkaran utama
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: config.circleColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: config.borderColor,
+                  width: isInProgress ? 2.5 : 3.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: config.borderColor.withValues(alpha: 0.35),
+                    blurRadius: 10,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: _buildNodeIcon(config),
+              ),
             ),
           ],
-        ),
-        child: Center(
-          child: _buildNodeIcon(config),
         ),
       ),
     );
@@ -243,8 +282,8 @@ class _MapNode extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s,
-        vertical: 3,
+        horizontal: AppSpacing.m,
+        vertical: 4,
       ),
       decoration: BoxDecoration(
         color: config.labelBgColor,
@@ -261,28 +300,10 @@ class _MapNode extends StatelessWidget {
         node.title,
         style: AppTypography.label.copyWith(
           color: config.labelTextColor,
+          fontWeight: FontWeight.w700,
           letterSpacing: 0.2,
         ),
         textAlign: TextAlign.center,
-      ),
-    );
-  }
-
-  /// Membangun progress bar kecil di bawah label untuk node inProgress.
-  Widget _buildProgressBar() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: SizedBox(
-        width: 80,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.penuh),
-          child: LinearProgressIndicator(
-            value: node.progress,
-            minHeight: 5,
-            backgroundColor: Colors.white.withValues(alpha: 0.6),
-            color: AppColors.daun,
-          ),
-        ),
       ),
     );
   }

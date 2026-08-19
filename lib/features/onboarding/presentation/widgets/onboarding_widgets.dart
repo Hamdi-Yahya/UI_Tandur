@@ -201,9 +201,11 @@ class OnboardingIllustration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (imagePath == null) {
+    final path = imagePath;
+    if (path == null) {
       return OnboardingIllustrationPlaceholder(label: label, color: fallbackColor);
     }
+    final bool isNetwork = path.startsWith('http://') || path.startsWith('https://');
     return Semantics(
       label: 'Ilustrasi: $label',
       image: true,
@@ -211,12 +213,31 @@ class OnboardingIllustration extends StatelessWidget {
         aspectRatio: 4 / 3,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
-          child: Image.asset(
-            imagePath!,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) =>
-                OnboardingIllustrationPlaceholder(label: label, color: fallbackColor),
-          ),
+          child: isNetwork
+              ? Image.network(
+                  path,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) => progress == null
+                      ? child
+                      : OnboardingIllustrationPlaceholder(
+                          label: label,
+                          color: fallbackColor,
+                        ),
+                  errorBuilder: (context, error, stackTrace) =>
+                      OnboardingIllustrationPlaceholder(
+                    label: label,
+                    color: fallbackColor,
+                  ),
+                )
+              : Image.asset(
+                  path,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      OnboardingIllustrationPlaceholder(
+                    label: label,
+                    color: fallbackColor,
+                  ),
+                ),
         ),
       ),
     );

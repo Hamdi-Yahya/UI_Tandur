@@ -477,3 +477,117 @@ class PhotoPlaceholder extends StatelessWidget {
 
 /// Transisi ringan bawaan, dipakai berulang untuk AnimatedSwitcher kecil.
 const Duration kTransisiRingan = AppMotion.umpanBalik;
+
+/// Chip interaktif untuk memilih komoditas (multi-select atau single-choice).
+/// Menampilkan ikon komoditas, nama, dan indikator terpilih yang rapi tanpa double border/wrapper.
+class PilihanKomoditasChip extends StatelessWidget {
+  final String commodity; // 'CABAI', 'TERONG', 'PADI', 'UMUM'
+  final bool isSelected;
+  final ValueChanged<bool>? onSelected;
+  final VoidCallback? onTap;
+
+  const PilihanKomoditasChip({
+    super.key,
+    required this.commodity,
+    required this.isSelected,
+    this.onSelected,
+    this.onTap,
+  });
+
+  static ({Color warna, Color latar, IconData ikon, String nama}) _rupa(String c) {
+    switch (c.toUpperCase()) {
+      case 'CABAI':
+        return (
+          warna: AppColors.cabai,
+          latar: AppColors.cabaiSamar,
+          ikon: Icons.local_fire_department_outlined,
+          nama: 'Cabai',
+        );
+      case 'TERONG':
+        return (
+          warna: AppColors.terong,
+          latar: AppColors.terongSamar,
+          ikon: Icons.spa_outlined,
+          nama: 'Terong',
+        );
+      case 'PADI':
+        return (
+          warna: AppColors.padi,
+          latar: AppColors.padiSamar,
+          ikon: Icons.grass_outlined,
+          nama: 'Padi',
+        );
+      default:
+        return (
+          warna: AppColors.daun,
+          latar: AppColors.daunSamar,
+          ikon: Icons.forum_outlined,
+          nama: 'Umum',
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rupa = _rupa(commodity);
+
+    return InkWell(
+      onTap: () {
+        if (onSelected != null) {
+          onSelected!(!isSelected);
+        } else if (onTap != null) {
+          onTap!();
+        }
+      },
+      borderRadius: BorderRadius.circular(AppRadius.penuh),
+      child: AnimatedContainer(
+        duration: AppMotion.umpanBalik,
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.m,
+          vertical: AppSpacing.s,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected ? rupa.latar : AppColors.kertas,
+          borderRadius: BorderRadius.circular(AppRadius.penuh),
+          border: Border.all(
+            color: isSelected ? rupa.warna : AppColors.garis,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: rupa.warna.withValues(alpha: 0.15),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isSelected) ...[
+              Icon(Icons.check_rounded, size: 15, color: rupa.warna),
+              const SizedBox(width: 4),
+            ],
+            Icon(
+              rupa.ikon,
+              size: 15,
+              color: isSelected ? rupa.warna : AppColors.tanahSamar,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              rupa.nama,
+              style: (isSelected ? AppTypography.isiTebal : AppTypography.isi).copyWith(
+                color: isSelected ? rupa.warna : AppColors.tanahLemah,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

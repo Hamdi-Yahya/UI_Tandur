@@ -3,7 +3,7 @@ import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/periksa/data/periksa_mock_data.dart';
+import 'package:tandur/features/periksa/data/periksa_models.dart';
 
 String formatHst(int hst) => 'HST $hst';
 

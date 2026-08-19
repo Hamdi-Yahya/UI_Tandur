@@ -45,12 +45,13 @@ class MenuRow extends StatelessWidget {
 }
 
 /// Sakelar preferensi — label + Switch, target sentuh cukup lebar.
+/// `onChanged` bernilai null saat sedang menyimpan ke server (Switch mati).
 class PreferenceSwitchRow extends StatelessWidget {
   final String label;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
-  const PreferenceSwitchRow({super.key, required this.label, required this.value, required this.onChanged});
+  const PreferenceSwitchRow({super.key, required this.label, required this.value, this.onChanged});
 
   @override
   Widget build(BuildContext context) {

@@ -1,46 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
+import 'package:tandur/features/auth/presentation/auth_controller.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
-
-/// Mock service untuk simulasi signin.
-/// Kontrak mengikuti API_DOCS.md:
-///   POST /api/auth/signin
-///   Error: { "msg": "Email atau password salah." }
-class _MockSigninService {
-  static Future<Map<String, dynamic>> signin({
-    required String email,
-    required String password,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 1000));
-
-    // Simulasi: kredensial yang dikenal untuk preview
-    if (email.trim().toLowerCase() == 'demo@tandur.id' && password == 'Demo1234') {
-      return {'success': true};
-    }
-    // Semua kredensial lain: "Email atau password salah." (sesuai API_DOCS.md)
-    return {'success': false, 'msg': 'Email atau password salah.'};
-  }
-}
 
 /// Screen 8 — Masuk (Sign In).
 /// Endpoint: POST /api/auth/signin
 /// Request: { "email": "...", "password": "..." }
-class MasukScreen extends StatefulWidget {
+class MasukScreen extends ConsumerStatefulWidget {
   const MasukScreen({super.key});
 
   @override
-  State<MasukScreen> createState() => _MasukScreenState();
+  ConsumerState<MasukScreen> createState() => _MasukScreenState();
 }
 
-class _MasukScreenState extends State<MasukScreen> {
+class _MasukScreenState extends ConsumerState<MasukScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordFocus = FocusNode();
 
-  bool _isLoading = false;
   String? _emailError;
   String? _credentialError; // "Email atau password salah."
 
@@ -79,20 +61,29 @@ class _MasukScreenState extends State<MasukScreen> {
 
   Future<void> _masuk() async {
     if (!_validateFields()) return;
-    setState(() => _isLoading = true);
 
-    final result = await _MockSigninService.signin(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+    final auth = ref.read(authControllerProvider.notifier);
+    final authState = ref.read(authControllerProvider);
+    if (authState.isLoading) return;
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (result['success'] == true) {
-      context.go('/kelas');
-    } else {
-      setState(() => _credentialError = result['msg'] as String?);
+    setState(() => _credentialError = null);
+    try {
+      await auth.signin(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      final isNewUser = ref.read(authControllerProvider).isNewUser;
+      context.go(isNewUser ? '/onboarding' : '/kelas');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (e.isValidation && e.fieldErrors?['email'] != null) {
+          _emailError = e.fieldErrors!['email']!.join('\n');
+        } else {
+          _credentialError = e.message;
+        }
+      });
     }
   }
 
@@ -186,7 +177,7 @@ class _MasukScreenState extends State<MasukScreen> {
                     PrimaryButton(
                       label: 'Masuk',
                       onPressed: _masuk,
-                      isLoading: _isLoading,
+                      isLoading: ref.watch(authControllerProvider).isLoading,
                     ),
                     const SizedBox(height: AppSpacing.l),
 
@@ -212,7 +203,7 @@ class _MasukScreenState extends State<MasukScreen> {
 
                     // Hint preview (hanya untuk development)
                     const SizedBox(height: AppSpacing.xl),
-                    _PreviewHint(),
+                    const _PreviewHint(),
                   ],
                 ),
               ),
@@ -224,9 +215,10 @@ class _MasukScreenState extends State<MasukScreen> {
   }
 }
 
-/// Widget hint untuk demo — ditampilkan selama mock service aktif.
-/// Dihapus setelah koneksi API production tersedia.
+/// Widget hint untuk demo — ditampilkan selama mode development.
 class _PreviewHint extends StatelessWidget {
+  const _PreviewHint();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -240,12 +232,12 @@ class _PreviewHint extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'MODE PREVIEW',
+            'BACKEND TANDUR',
             style: AppTypography.label.copyWith(color: AppColors.padi),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Gunakan: demo@tandur.id / Demo1234',
+            'Masuk memakai akun dari POST /api/auth/signin. Pastikan backend berjalan.',
             style: AppTypography.kecil.copyWith(color: AppColors.tanahLemah),
           ),
         ],

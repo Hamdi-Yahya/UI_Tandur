@@ -1,115 +1,152 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
+import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/kelas/data/kelas_mock_data.dart';
+import 'package:tandur/features/kelas/data/learning_repository.dart';
 import 'package:tandur/features/kelas/presentation/widgets/gamification_widgets.dart';
 
-class QuizScreen extends StatefulWidget {
+class QuizScreen extends ConsumerStatefulWidget {
   final String id;
 
   const QuizScreen({super.key, required this.id});
 
   @override
-  State<QuizScreen> createState() => _QuizScreenState();
+  ConsumerState<QuizScreen> createState() => _QuizScreenState();
 }
 
-class _QuizScreenState extends State<QuizScreen> {
-  late QuizDetail _quiz;
+class _QuizScreenState extends ConsumerState<QuizScreen> {
+  QuizDetail? _quiz;
+  String? _errorMessage;
   int _currentQuestionIndex = 0;
-  int? _selectedAnswerIndex;
-  
-  // Gamification state
-  int _lives = 3; 
-  int _correctAnswers = 0;
-  bool _showFeedback = false;
+  final Map<String, String> _selectedAnswers = {};
+  bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
-    _quiz = QuizDetail.getMock(widget.id);
+    _load();
   }
 
-  void _submitAnswer() {
-    if (_selectedAnswerIndex == null) return;
-    
-    final isCorrect = _selectedAnswerIndex == _quiz.questions[_currentQuestionIndex].correctAnswerIndex;
-    if (isCorrect) {
-      _correctAnswers++;
-    } else {
-      _lives--;
-    }
-
+  Future<void> _load() async {
     setState(() {
-      _showFeedback = true;
+      _quiz = null;
+      _errorMessage = null;
+      _currentQuestionIndex = 0;
+      _selectedAnswers.clear();
     });
-
-    if (_lives <= 0) {
-      // Game Over delay before navigating
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          _finishQuiz();
-        }
+    try {
+      final quiz = await ref
+          .read(learningRepositoryProvider)
+          .getQuiz(widget.id);
+      if (!mounted) return;
+      setState(() {
+        _quiz = quiz;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.message;
       });
     }
   }
+
+  bool get _hasAnsweredCurrent =>
+      _selectedAnswers.containsKey(_currentQuestion.questionId);
+
+  QuizQuestion get _currentQuestion => _quiz!.questions[_currentQuestionIndex];
 
   void _nextQuestion() {
-    if (_lives <= 0) return; // Wait for Game Over delay
-
-    if (_currentQuestionIndex < _quiz.questions.length - 1) {
+    if (_currentQuestionIndex < _quiz!.questions.length - 1) {
       setState(() {
         _currentQuestionIndex++;
-        _selectedAnswerIndex = null;
-        _showFeedback = false;
       });
-    } else {
-      _finishQuiz();
     }
   }
 
-  void _finishQuiz() {
-    context.pushReplacement(
-      '/kelas/ujian-unit/${widget.id}/hasil', 
-      extra: {
-        'score': _correctAnswers, 
-        'total': _quiz.questions.length,
-        'passed': _lives > 0,
+  Future<void> _submitAll() async {
+    if (_submitting) return;
+    final quiz = _quiz;
+    if (quiz == null) return;
+
+    setState(() {
+      _submitting = true;
+    });
+    try {
+      final result = await ref
+          .read(learningRepositoryProvider)
+          .submitQuiz(
+            quiz.quizId,
+            answers: quiz.questions
+                .map(
+                  (q) => {
+                    'questionId': q.questionId,
+                    'answer': _selectedAnswers[q.questionId],
+                  },
+                )
+                .toList(),
+          );
+      if (!mounted) return;
+      context.pushReplacement(
+        '/kelas/ujian-unit/${quiz.quizId}/hasil',
+        extra: {
+          'score': result.score,
+          'total': result.totalCount,
+          'passed': result.passed,
+        },
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: AppColors.tanah,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
       }
-    );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final question = _quiz.questions[_currentQuestionIndex];
-    final isCorrect = _selectedAnswerIndex == question.correctAnswerIndex;
+    if (_errorMessage != null) {
+      return Scaffold(
+        backgroundColor: AppColors.embun,
+        appBar: _buildAppBar(null, 0),
+        body: KeadaanGalat(message: _errorMessage!, onRetry: _load),
+      );
+    }
+
+    final quiz = _quiz;
+    if (quiz == null) {
+      return Scaffold(
+        backgroundColor: AppColors.embun,
+        appBar: _buildAppBar(null, 0),
+        body: const Center(
+          child: CircularProgressIndicator(color: AppColors.daun),
+        ),
+      );
+    }
+
+    final question = quiz.questions[_currentQuestionIndex];
+    final isLastQuestion = _currentQuestionIndex == quiz.questions.length - 1;
+    final selectedKey = _selectedAnswers[question.questionId];
+    final allAnswered = quiz.questions.every(
+      (q) => _selectedAnswers.containsKey(q.questionId),
+    );
 
     return Scaffold(
       backgroundColor: AppColors.embun,
-      appBar: AppBar(
-        backgroundColor: AppColors.embun,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: AppColors.tanahSamar),
-          onPressed: () => context.pop(),
-        ),
-        title: LinearProgressIndicator(
-          value: (_currentQuestionIndex + 1) / _quiz.questions.length,
-          backgroundColor: AppColors.garis,
-          color: AppColors.daun,
-          minHeight: 8,
-          borderRadius: BorderRadius.circular(AppRadius.penuh),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m),
-            child: Center(
-              child: LivesIndicator(lives: _lives),
-            ),
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(quiz, quiz.questions.length),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.l),
@@ -117,102 +154,101 @@ class _QuizScreenState extends State<QuizScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _quiz.title,
-                style: AppTypography.label.copyWith(color: AppColors.tanahLemah),
+                quiz.unitTitle,
+                style: AppTypography.label.copyWith(
+                  color: AppColors.tanahLemah,
+                ),
               ),
               const SizedBox(height: AppSpacing.m),
               Text(
-                question.question,
+                question.prompt,
                 style: AppTypography.judul.copyWith(color: AppColors.tanah),
               ),
-              const SizedBox(height: AppSpacing.xl),
-              
-              ...List.generate(question.options.length, (index) {
-                final isSelected = _selectedAnswerIndex == index;
-                final isCorrectOption = index == question.correctAnswerIndex;
-                
-                Color borderColor = AppColors.garis;
-                Color bgColor = AppColors.kertas;
-                
-                if (_showFeedback) {
-                  if (isSelected && !isCorrectOption) {
-                    borderColor = AppColors.cabai;
-                    bgColor = AppColors.cabaiSamar;
-                  } else if (isCorrectOption) {
-                    borderColor = AppColors.daun;
-                    bgColor = AppColors.daunSamar;
-                  }
-                } else if (isSelected) {
-                  borderColor = AppColors.daun;
-                  bgColor = AppColors.daunSamar;
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.m),
-                  child: InkWell(
-                    onTap: _showFeedback ? null : () {
-                      setState(() {
-                        _selectedAnswerIndex = index;
-                      });
-                    },
+              if (question.imageUrl != null &&
+                  question.imageUrl!.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.m),
+                Container(
+                  height: 160,
+                  decoration: BoxDecoration(
+                    color: AppColors.daunSamar,
                     borderRadius: BorderRadius.circular(AppRadius.sedang),
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.l),
-                      decoration: BoxDecoration(
-                        color: bgColor,
-                        borderRadius: BorderRadius.circular(AppRadius.sedang),
-                        border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
-                      ),
-                      child: Text(
-                        question.options[index],
-                        style: AppTypography.isi.copyWith(
-                          color: _showFeedback && isSelected && !isCorrectOption 
-                              ? AppColors.cabai 
-                              : AppColors.tanah,
-                        ),
-                      ),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      '[GAMBAR_SOAL]',
+                      style: TextStyle(fontSize: 12, color: AppColors.daun),
                     ),
                   ),
-                );
-              }),
-              
-              const Spacer(),
-              
-              if (_showFeedback)
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.m),
-                  margin: const EdgeInsets.only(bottom: AppSpacing.l),
-                  decoration: BoxDecoration(
-                    color: isCorrect ? AppColors.daunSamar : AppColors.cabaiSamar,
-                    borderRadius: BorderRadius.circular(AppRadius.sedang),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isCorrect ? Icons.check_circle : Icons.error,
-                        color: isCorrect ? AppColors.daun : AppColors.cabai,
-                      ),
-                      const SizedBox(width: AppSpacing.m),
-                      Expanded(
-                        child: Text(
-                          isCorrect ? 'Tepat sekali!' : 'Jawaban salah. Nyawa -1',
-                          style: AppTypography.isiTebal.copyWith(
-                            color: isCorrect ? AppColors.daun : AppColors.cabai,
+                ),
+              ],
+              const SizedBox(height: AppSpacing.xl),
+
+              Expanded(
+                child: ListView(
+                  children: [
+                    ...question.options.map((option) {
+                      final isSelected = option.key == selectedKey;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.m),
+                        child: InkWell(
+                          onTap: _submitting
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _selectedAnswers[question.questionId] =
+                                        option.key;
+                                  });
+                                },
+                          borderRadius: BorderRadius.circular(AppRadius.sedang),
+                          child: Container(
+                            padding: const EdgeInsets.all(AppSpacing.l),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.daunSamar
+                                  : AppColors.kertas,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.sedang,
+                              ),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.daun
+                                    : AppColors.garis,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Text(
+                              '${option.key}. ${option.text}',
+                              style: AppTypography.isi.copyWith(
+                                color: AppColors.tanah,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      );
+                    }),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: AppSpacing.m),
+
+              if (isLastQuestion && !allAnswered)
+                Text(
+                  'Masih ada soal belum dijawab: ${quiz.questions.length - _selectedAnswers.length} soal.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.kecil.copyWith(
+                    color: AppColors.tanahLemah,
                   ),
                 ),
-                
+
               ElevatedButton(
-                onPressed: _showFeedback 
-                    ? (_lives > 0 ? _nextQuestion : null) 
-                    : (_selectedAnswerIndex != null ? _submitAnswer : null),
+                onPressed: _submitting
+                    ? null
+                    : (isLastQuestion
+                          ? (allAnswered ? _submitAll : null)
+                          : (_hasAnsweredCurrent ? _nextQuestion : null)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _showFeedback 
-                      ? (isCorrect ? AppColors.daun : AppColors.cabai)
-                      : AppColors.daun,
+                  backgroundColor: AppColors.daun,
                   foregroundColor: AppColors.kertas,
                   disabledBackgroundColor: AppColors.garis,
                   disabledForegroundColor: AppColors.tanahSamar,
@@ -222,9 +258,7 @@ class _QuizScreenState extends State<QuizScreen> {
                   ),
                 ),
                 child: Text(
-                  _showFeedback 
-                      ? (_lives > 0 ? 'Lanjut' : 'Gagal') 
-                      : 'Periksa', 
+                  isLastQuestion ? 'Kumpulkan Jawaban' : 'Lanjut',
                   style: AppTypography.isiTebal,
                 ),
               ),
@@ -232,6 +266,33 @@ class _QuizScreenState extends State<QuizScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(QuizDetail? quiz, int total) {
+    final value = total == 0 ? 0.0 : (_currentQuestionIndex + 1) / total;
+    return AppBar(
+      backgroundColor: AppColors.embun,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.close, color: AppColors.tanahSamar),
+        onPressed: () => context.pop(),
+      ),
+      title: LinearProgressIndicator(
+        value: value,
+        backgroundColor: AppColors.garis,
+        color: AppColors.daun,
+        minHeight: 8,
+        borderRadius: BorderRadius.circular(AppRadius.penuh),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m),
+          child: Center(
+            child: LivesIndicator(lives: quiz?.livesAvailable ?? 0),
+          ),
+        ),
+      ],
     );
   }
 }

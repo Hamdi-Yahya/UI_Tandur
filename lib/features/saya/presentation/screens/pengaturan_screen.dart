@@ -1,33 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/saya/data/saya_mock_data.dart';
+import 'package:tandur/features/auth/presentation/auth_controller.dart';
+import 'package:tandur/features/saya/data/saya_repository.dart';
+import 'package:tandur/features/saya/data/users_repository.dart';
 import 'package:tandur/features/saya/presentation/widgets/saya_widgets.dart';
 
 /// Pengaturan — rute `/saya/pengaturan`. Preferensi notifikasi
-/// (API_DOCS_NEW.md §6 Update Preferences), keluar, dan hapus akun (§2
+/// (API_DOCS bagian 6 Update Preferences), keluar, dan hapus akun (§2
 /// Delete Account) — konfirmasi hapus akun ditampilkan sebagai dialog di
 /// layar ini, bukan rute terpisah.
-class PengaturanScreen extends StatefulWidget {
+class PengaturanScreen extends ConsumerStatefulWidget {
   const PengaturanScreen({super.key});
 
   @override
-  State<PengaturanScreen> createState() => _PengaturanScreenState();
+  ConsumerState<PengaturanScreen> createState() => _PengaturanScreenState();
 }
 
-class _PengaturanScreenState extends State<PengaturanScreen> {
-  final _prefs = SayaMockData.preferences;
+class _PengaturanScreenState extends ConsumerState<PengaturanScreen> {
+  NotificationPreferences _prefs = const NotificationPreferences();
+  bool _savingPrefs = false;
 
-  void _keluar() {
+  Future<void> _keluar() async {
+    await ref.read(authControllerProvider.notifier).signout();
+    if (!mounted) return;
     context.go('/masuk');
   }
 
   Future<void> _konfirmasiHapusAkun() async {
     final passwordController = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    final password = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.kertas,
@@ -59,20 +66,60 @@ class _PengaturanScreenState extends State<PengaturanScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text('Batal', style: AppTypography.isiTebal.copyWith(color: AppColors.tanahLemah)),
           ),
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
+            onPressed: () => Navigator.of(dialogContext).pop(passwordController.text),
             child: Text('Hapus', style: AppTypography.isiTebal.copyWith(color: AppColors.cabai)),
           ),
         ],
       ),
     );
-    if (confirmed == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Akun dijadwalkan dihapus dalam 30 hari.')),
-      );
+    if (password == null || password.isEmpty || !mounted) return;
+    await _hapusAkun(password: password);
+  }
+
+  Future<void> _hapusAkun({required String password}) async {
+    try {
+      await ref.read(usersRepositoryProvider).deleteAccount(password: password);
+      if (!mounted) return;
+      await ref.read(authControllerProvider.notifier).signout();
+      if (!mounted) return;
+      context.go('/masuk');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Terjadi galat. Coba lagi.')));
+    }
+  }
+
+  Future<void> _ubahPrefs(NotificationPreferences next) async {
+    final sebelum = _prefs;
+    setState(() {
+      _prefs = next;
+      _savingPrefs = true;
+    });
+    try {
+      await ref.read(notificationRepositoryProvider).updatePreferences(next);
+      if (!mounted) return;
+      setState(() => _savingPrefs = false);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _prefs = sebelum;
+        _savingPrefs = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _prefs = sebelum;
+        _savingPrefs = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Terjadi galat. Coba lagi.')));
     }
   }
 
@@ -90,22 +137,22 @@ class _PengaturanScreenState extends State<PengaturanScreen> {
             PreferenceSwitchRow(
               label: 'Pengingat periksa tanaman',
               value: _prefs.scanReminder,
-              onChanged: (v) => setState(() => _prefs.scanReminder = v),
+              onChanged: _savingPrefs ? null : (v) => _ubahPrefs(_prefs.copyWith(scanReminder: v)),
             ),
             PreferenceSwitchRow(
               label: 'Balasan Warung Tani',
               value: _prefs.replyReceived,
-              onChanged: (v) => setState(() => _prefs.replyReceived = v),
+              onChanged: _savingPrefs ? null : (v) => _ubahPrefs(_prefs.copyWith(replyReceived: v)),
             ),
             PreferenceSwitchRow(
               label: 'Jawaban ditandai terbaik',
               value: _prefs.bestAnswerMarked,
-              onChanged: (v) => setState(() => _prefs.bestAnswerMarked = v),
+              onChanged: _savingPrefs ? null : (v) => _ubahPrefs(_prefs.copyWith(bestAnswerMarked: v)),
             ),
             PreferenceSwitchRow(
               label: 'Peringatan runtutan putus',
               value: _prefs.streakWarning,
-              onChanged: (v) => setState(() => _prefs.streakWarning = v),
+              onChanged: _savingPrefs ? null : (v) => _ubahPrefs(_prefs.copyWith(streakWarning: v)),
             ),
             const SizedBox(height: AppSpacing.xl),
             const Divider(color: AppColors.garis),

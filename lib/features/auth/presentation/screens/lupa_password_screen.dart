@@ -1,48 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
+import 'package:tandur/features/auth/data/auth_repository.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
-
-/// Mock service untuk simulasi forgot password.
-/// Kontrak mengikuti API_DOCS.md:
-///   POST /api/auth/forgot-password
-///   Success: { "msg": "Kalau email terdaftar, kami kirim tautan reset." }
-///   Error: { "msg": { "email": ["Format email tidak valid."] } }
-class _MockForgotPasswordService {
-  static Future<Map<String, dynamic>> kirim({required String email}) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    // Validasi format email (sama persis seperti yang akan dilakukan server)
-    if (!RegExp(r'^[\w.+-]+@[\w-]+\.[a-z]{2,}$').hasMatch(email.trim())) {
-      return {
-        'success': false,
-        'errors': {'email': 'Format email tidak valid.'},
-      };
-    }
-
-    // Sesuai API_DOCS: API tidak mengungkapkan apakah email terdaftar atau tidak.
-    // Respons selalu sama untuk email valid.
-    return {
-      'success': true,
-      'msg': 'Kalau email terdaftar, kami kirim tautan reset.',
-    };
-  }
-}
 
 /// Screen 9 — Lupa Password.
 /// Endpoint: POST /api/auth/forgot-password
 /// Request: { "email": "..." }
 /// Catatan: API tidak mengungkap apakah email terdaftar (sesuai API_DOCS).
-class LupaPasswordScreen extends StatefulWidget {
+class LupaPasswordScreen extends ConsumerStatefulWidget {
   const LupaPasswordScreen({super.key});
 
   @override
-  State<LupaPasswordScreen> createState() => _LupaPasswordScreenState();
+  ConsumerState<LupaPasswordScreen> createState() => _LupaPasswordScreenState();
 }
 
-class _LupaPasswordScreenState extends State<LupaPasswordScreen> {
+class _LupaPasswordScreenState extends ConsumerState<LupaPasswordScreen> {
   final _emailController = TextEditingController();
 
   bool _isLoading = false;
@@ -78,21 +55,22 @@ class _LupaPasswordScreenState extends State<LupaPasswordScreen> {
       _serverError = null;
     });
 
-    final result = await _MockForgotPasswordService.kirim(
-      email: _emailController.text.trim(),
-    );
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (result['success'] == true) {
-      setState(() => _berhasilTerkirim = true);
-    } else {
-      final errors = result['errors'] as Map<String, dynamic>?;
+    try {
+      await ref.read(authRepositoryProvider).forgotPassword(
+            email: _emailController.text.trim(),
+          );
+      if (!mounted) return;
       setState(() {
-        _emailError = errors?['email'] as String?;
+        _isLoading = false;
+        _berhasilTerkirim = true;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _emailError = e.fieldErrors?['email']?.join('\n');
         if (_emailError == null) {
-          _serverError = 'Tidak dapat mengirim tautan sekarang. Coba lagi.';
+          _serverError = e.message;
         }
       });
     }

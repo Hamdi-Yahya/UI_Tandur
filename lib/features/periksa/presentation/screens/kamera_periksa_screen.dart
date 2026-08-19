@@ -1,37 +1,49 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
+import 'package:tandur/core/network/app_enums.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/periksa/data/periksa_mock_data.dart';
+import 'package:tandur/features/periksa/data/periksa_models.dart';
+import 'package:tandur/features/periksa/data/periksa_repository.dart';
 
 /// Layar kamera Periksa Tanaman — DESAIN.md §4.5. "Layar paling sunyi di
 /// aplikasi", hampir tanpa warna. Pratinjau kamera diganti placeholder karena
-/// belum ada dependency kamera/kompresi gambar (tahap ini murni UI ringan,
-/// belum tersambung ke BE/hardware — lihat CATATAN_FE_FLUTTER.md).
-class KameraPeriksaScreen extends StatefulWidget {
+/// belum ada dependency kamera/kompresi gambar; inferensi TFLite juga masih
+/// simulasi (PRD §7.3). Alur nyata yang tersambung: ambil manifest model
+/// per komoditas, kirim `POST /api/scans`, lalu buka hasil pindainya.
+///
+/// Batas simpan 30 pindai/hari dan 404 `MODEL_NOT_AVAILABLE` ditangani di
+/// sini; foto (unggah `POST /api/uploads/signed-url` + PUT bytes) menyusul
+/// saat kamera sungguhan masuk.
+class KameraPeriksaScreen extends ConsumerStatefulWidget {
   const KameraPeriksaScreen({super.key});
 
   @override
-  State<KameraPeriksaScreen> createState() => _KameraPeriksaScreenState();
+  ConsumerState<KameraPeriksaScreen> createState() => _KameraPeriksaScreenState();
 }
 
-class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
+class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
   static const _tips = [
     'Satu daun, latar polos, jangan melawan cahaya',
     'Pastikan gejala terlihat jelas di tengah bingkai',
     'Ambil dari jarak dekat, bukan seluruh rumpun',
   ];
 
-  Plant _selectedPlant = PeriksaMockData.plants.first;
+  List<Plant> _plants = const [];
+  Plant? _selectedPlant;
   int _tipIndex = 0;
+  bool _isProcessing = false;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
+    _muatTanaman();
     _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted) return;
       setState(() => _tipIndex = (_tipIndex + 1) % _tips.length);
@@ -44,6 +56,20 @@ class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
     super.dispose();
   }
 
+  Future<void> _muatTanaman() async {
+    try {
+      final plants = await ref.read(periksaRepositoryProvider).getPlants();
+      if (!mounted) return;
+      setState(() {
+        _plants = plants;
+        _selectedPlant ??= plants.isEmpty ? null : plants.first;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   void _pilihTanaman() {
     showModalBottomSheet(
       context: context,
@@ -54,7 +80,7 @@ class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: PeriksaMockData.plants
+          children: _plants
               .map((p) => ListTile(
                     title: Text(p.nickname, style: AppTypography.isiTebal.copyWith(color: AppColors.tanah)),
                     subtitle: Text('HST ${p.daysAfterPlanting}', style: AppTypography.kecil.copyWith(color: AppColors.tanahLemah)),
@@ -69,14 +95,66 @@ class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
     );
   }
 
-  void _ambilFoto() {
-    // Klasifikasi berjalan di perangkat lewat model TFLite (PRD §7.3). Di tahap
-    // UI ini, hasil langsung memakai data mock DONE dari PeriksaMockData.
-    context.push('/periksa/hasil/${PeriksaMockData.scanDone.scanId}');
+  Future<void> _ambilFoto() async {
+    if (_isProcessing) return;
+    final plant = _selectedPlant;
+    if (plant == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Daftarkan tanaman dulu sebelum memeriksa.')),
+      );
+      context.push('/periksa/tanaman');
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+    try {
+      final repo = ref.read(periksaRepositoryProvider);
+      final manifest = await repo.getModelManifest(Commodity.fromApi(plant.commodity));
+      final predictions = _simulasiInferensi(plant.commodity, manifest.labels);
+      final scan = await repo.saveScan(
+        plantId: plant.plantId,
+        modelVersion: manifest.version,
+        inferenceMs: 800,
+        predictions: predictions,
+        capturedAt: DateTime.now(),
+      );
+      if (!mounted) return;
+      context.push('/periksa/hasil/${scan.scanId}');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final pesan = e.isModelNotAvailable
+          ? 'Model belum tersedia untuk komoditas ini.'
+          : e.message;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(pesan)));
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  /// Inferensi masih simulasi sampai TFLite + kamera masuk (PRD §7.3):
+  /// satu dugaan utama per komoditas, sisanya di bawah ambang 0.10 supaya
+  /// penyaringan "confidence > 0.10, maks 3" (API_DOCS v3.2) tetap milik
+  /// backend. Label diambil dari manifes, bukan hardcode.
+  List<ScanPrediction> _simulasiInferensi(String commodity, List<String> labels) {
+    const utama = {
+      'CABAI': 'VIRUS_KUNING_KERITING',
+      'TERONG': 'HAMA_SERANGGA',
+      'PADI': 'BLAS_DAUN',
+    };
+    final labelUtama = utama[commodity.toUpperCase()] ?? (labels.isEmpty ? null : labels.first);
+    return [
+      for (final l in labels)
+        ScanPrediction(
+          label: l,
+          displayName: l,
+          confidence: l == labelUtama ? 0.81 : 0.07,
+        ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
+    final plant = _selectedPlant;
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -93,13 +171,16 @@ class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
                     tooltip: 'Tutup',
                   ),
                   InkWell(
-                    onTap: _pilihTanaman,
+                    onTap: _plants.isEmpty ? null : _pilihTanaman,
                     borderRadius: BorderRadius.circular(AppRadius.penuh),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m, vertical: AppSpacing.s),
                       child: Row(
                         children: [
-                          Text(_selectedPlant.nickname, style: AppTypography.isiTebal.copyWith(color: Colors.white)),
+                          Text(
+                            plant?.nickname ?? 'Pilih tanaman',
+                            style: AppTypography.isiTebal.copyWith(color: Colors.white),
+                          ),
                           const Icon(Icons.arrow_drop_down, color: Colors.white),
                         ],
                       ),
@@ -114,12 +195,16 @@ class _KameraPeriksaScreenState extends State<KameraPeriksaScreen> {
                   aspectRatio: 3 / 4,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-                    child: CustomPaint(
-                      painter: _DashedFramePainter(),
-                      child: const Center(
-                        child: Icon(Icons.eco_outlined, color: Colors.white24, size: 64),
-                      ),
-                    ),
+                    child: _isProcessing
+                        ? const Center(
+                            child: CircularProgressIndicator(color: Colors.white),
+                          )
+                        : CustomPaint(
+                            painter: _DashedFramePainter(),
+                            child: const Center(
+                              child: Icon(Icons.eco_outlined, color: Colors.white24, size: 64),
+                            ),
+                          ),
                   ),
                 ),
               ),

@@ -1,28 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
+import 'package:tandur/core/network/app_enums.dart';
 import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/periksa/data/periksa_mock_data.dart';
+import 'package:tandur/features/periksa/data/periksa_models.dart';
+import 'package:tandur/features/periksa/data/periksa_repository.dart';
 
 /// Form Daftarkan Tanaman — PRD §5.2 US-06 / API_DOCS_NEW.md §4.1 Create Plant.
 /// Field: komoditas, nama panggilan, jumlah polybag/luas, tanggal tanam
-/// (boleh perkiraan).
-class FormTanamanScreen extends StatefulWidget {
+/// (boleh perkiraan). Menyimpan lewat `POST /api/plants` dan mengembalikan
+/// [PlantCreated] ke layar daftar.
+class FormTanamanScreen extends ConsumerStatefulWidget {
   const FormTanamanScreen({super.key});
 
   @override
-  State<FormTanamanScreen> createState() => _FormTanamanScreenState();
+  ConsumerState<FormTanamanScreen> createState() => _FormTanamanScreenState();
 }
 
-class _FormTanamanScreenState extends State<FormTanamanScreen> {
+class _FormTanamanScreenState extends ConsumerState<FormTanamanScreen> {
   final _nicknameController = TextEditingController();
   final _unitCountController = TextEditingController(text: '30');
   String _commodity = 'CABAI';
   UnitType _unitType = UnitType.polybag;
   DateTime _plantedAt = DateTime.now();
   bool _isEstimated = false;
+  bool _menyimpan = false;
 
   @override
   void dispose() {
@@ -31,21 +37,36 @@ class _FormTanamanScreenState extends State<FormTanamanScreen> {
     super.dispose();
   }
 
-  void _simpan() {
+  Future<void> _simpan() async {
+    if (_menyimpan) return;
     if (_nicknameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama panggilan wajib diisi.')));
       return;
     }
-    final baru = Plant(
-      plantId: 'p${DateTime.now().millisecondsSinceEpoch}',
-      nickname: _nicknameController.text.trim(),
-      commodity: _commodity,
-      daysAfterPlanting: DateTime.now().difference(_plantedAt).inDays,
-      phase: 'SEMAI',
-      unitCount: int.tryParse(_unitCountController.text) ?? 1,
-      unitType: _unitType,
-    );
-    context.pop(baru);
+    final unitCount = int.tryParse(_unitCountController.text);
+    if (unitCount == null || unitCount < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jumlah minimal 1.')));
+      return;
+    }
+
+    setState(() => _menyimpan = true);
+    try {
+      final created = await ref.read(periksaRepositoryProvider).createPlant(
+            commodity: Commodity.fromApi(_commodity),
+            nickname: _nicknameController.text.trim(),
+            unitCount: unitCount,
+            unitType: _unitType,
+            plantedAt: _plantedAt,
+          );
+      if (!mounted) return;
+      context.pop(created);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.fieldErrors?['nickname']?.first ?? e.message)));
+    } finally {
+      if (mounted) setState(() => _menyimpan = false);
+    }
   }
 
   @override
@@ -63,16 +84,13 @@ class _FormTanamanScreenState extends State<FormTanamanScreen> {
               const SizedBox(height: AppSpacing.s),
               Wrap(
                 spacing: AppSpacing.s,
+                runSpacing: AppSpacing.s,
                 children: const ['CABAI', 'TERONG', 'PADI'].map((c) {
                   final selected = c == _commodity;
-                  return ChoiceChip(
-                    label: LabelKomoditas(commodity: c),
-                    selected: selected,
-                    onSelected: (_) => setState(() => _commodity = c),
-                    backgroundColor: AppColors.kertas,
-                    selectedColor: AppColors.daunSamar,
-                    side: BorderSide(color: selected ? AppColors.daun : AppColors.garis, width: selected ? 2 : 1),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.penuh)),
+                  return PilihanKomoditasChip(
+                    commodity: c,
+                    isSelected: selected,
+                    onTap: () => setState(() => _commodity = c),
                   );
                 }).toList(),
               ),
@@ -116,7 +134,8 @@ class _FormTanamanScreenState extends State<FormTanamanScreen> {
                           initialValue: _unitType,
                           decoration: _dec(null),
                           items: UnitType.values
-                              .map((u) => DropdownMenuItem(value: u, child: Text(unitTypeLabel(u), style: AppTypography.isi)))
+                              .where((u) => u != UnitType.unknown)
+                              .map((u) => DropdownMenuItem(value: u, child: Text(u.label, style: AppTypography.isi)))
                               .toList(),
                           onChanged: (u) => setState(() => _unitType = u ?? _unitType),
                         ),
@@ -173,14 +192,14 @@ class _FormTanamanScreenState extends State<FormTanamanScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _simpan,
+                  onPressed: _menyimpan ? null : _simpan,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.daun,
                     foregroundColor: AppColors.kertas,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.penuh)),
                     textStyle: AppTypography.isiTebal,
                   ),
-                  child: const Text('Daftarkan'),
+                  child: Text(_menyimpan ? 'Menyimpan...' : 'Daftarkan'),
                 ),
               ),
             ],

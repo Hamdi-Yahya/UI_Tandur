@@ -1,49 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
+import 'package:tandur/features/auth/presentation/auth_controller.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
 
-/// Mock service untuk simulasi API auth.
-/// Menggantikan real HTTP client selama backend belum terkoneksi.
-/// Kontrak mengikuti API_DOCS.md:
-///   POST /api/auth/signup
-class _MockAuthService {
-  /// Simulasi signup. Mengembalikan error jika email sudah dipakai.
-  static Future<Map<String, dynamic>> signup({
-    required String fullName,
-    required String email,
-    required String password,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    // Simulasi: email "test@tandur.id" sudah terdaftar
-    if (email.trim().toLowerCase() == 'test@tandur.id') {
-      return {
-        'success': false,
-        'errors': {'email': 'Email sudah terdaftar.'},
-      };
-    }
-    return {
-      'success': true,
-      'data': {'userId': 'mock-uuid', 'accessToken': 'mock-token'},
-    };
-  }
-}
-
 /// Screen 7 — Daftar Akun (Registrasi Progresif).
-/// Muncul setelah pengguna menyelesaikan lesson/scan pertama (PRD US-00).
 /// Endpoint: POST /api/auth/signup
 /// Request: { "fullName": "...", "email": "...", "password": "..." }
-class DaftarScreen extends StatefulWidget {
+class DaftarScreen extends ConsumerStatefulWidget {
   const DaftarScreen({super.key});
 
   @override
-  State<DaftarScreen> createState() => _DaftarScreenState();
+  ConsumerState<DaftarScreen> createState() => _DaftarScreenState();
 }
 
-class _DaftarScreenState extends State<DaftarScreen> {
+class _DaftarScreenState extends ConsumerState<DaftarScreen> {
   final _formKey = GlobalKey<FormState>();
   final _namaController = TextEditingController();
   final _emailController = TextEditingController();
@@ -52,7 +27,6 @@ class _DaftarScreenState extends State<DaftarScreen> {
   final _emailFocus = FocusNode();
   final _passwordFocus = FocusNode();
 
-  bool _isLoading = false;
   String? _serverError;
 
   // Field-level errors (dari validasi API)
@@ -105,30 +79,32 @@ class _DaftarScreenState extends State<DaftarScreen> {
     return valid;
   }
 
-  /// Kirim form signup ke mock service.
+  /// Kirim form signup ke backend.
   Future<void> _daftar() async {
     if (!_validateFields()) return;
-    setState(() => _isLoading = true);
 
-    final result = await _MockAuthService.signup(
-      fullName: _namaController.text.trim(),
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+    final auth = ref.read(authControllerProvider.notifier);
+    if (ref.read(authControllerProvider).isLoading) return;
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (result['success'] == true) {
-      // Navigasi ke screen utama setelah daftar berhasil
-      context.go('/kelas');
-    } else {
-      final errors = result['errors'] as Map<String, dynamic>?;
+    setState(() => _serverError = null);
+    try {
+      await auth.signup(
+        fullName: _namaController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      context.go('/onboarding');
+    } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _emailError = errors?['email'] as String?;
-        _passwordError = errors?['password'] as String?;
-        if (_emailError == null && _passwordError == null) {
-          _serverError = 'Terjadi masalah. Coba lagi dalam beberapa saat.';
+        if (e.isValidation && e.fieldErrors != null) {
+          _namaError = e.fieldErrors!['fullName']?.join('\n');
+          _emailError = e.fieldErrors!['email']?.join('\n');
+          _passwordError = e.fieldErrors!['password']?.join('\n');
+        }
+        if (_namaError == null && _emailError == null && _passwordError == null) {
+          _serverError = e.message;
         }
       });
     }
@@ -224,7 +200,7 @@ class _DaftarScreenState extends State<DaftarScreen> {
                       PrimaryButton(
                         label: 'Daftar',
                         onPressed: _daftar,
-                        isLoading: _isLoading,
+                        isLoading: ref.watch(authControllerProvider).isLoading,
                       ),
                       const SizedBox(height: AppSpacing.l),
 

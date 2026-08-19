@@ -1,90 +1,178 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
-import 'package:tandur/features/saya/data/saya_mock_data.dart';
+import 'package:tandur/features/saya/data/saya_repository.dart';
+import 'package:tandur/features/saya/data/users_repository.dart';
 import 'package:tandur/features/saya/presentation/widgets/saya_widgets.dart';
 
 /// Profil Saya (Utama) — rute `/saya`. Pintu masuk ke Ubah Profil, Riwayat XP,
 /// Koleksi Lencana, Pusat Notifikasi, dan Pengaturan.
-class ProfilSayaScreen extends StatelessWidget {
+class ProfilSayaScreen extends ConsumerStatefulWidget {
   const ProfilSayaScreen({super.key});
 
   @override
+  ConsumerState<ProfilSayaScreen> createState() => _ProfilSayaScreenState();
+}
+
+class _ProfilSayaScreenState extends ConsumerState<ProfilSayaScreen> {
+  UserProfile? _profile;
+  GamificationStats? _stats;
+  String? _error;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _muat();
+  }
+
+  Future<void> _muat() async {
+    setState(() {
+      _loading = _profile == null;
+      _error = null;
+    });
+    try {
+      final profile = await ref.read(usersRepositoryProvider).getMe();
+      final stats = await ref.read(gamificationRepositoryProvider).getStats();
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+        _stats = stats;
+        _loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Terjadi galat. Coba lagi.';
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final profile = SayaMockData.profile;
-    final stats = SayaMockData.stats;
+    final profile = _profile;
+    final stats = _stats;
     return Scaffold(
       backgroundColor: AppColors.embun,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.l),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  InitialAvatar(name: profile.fullName, radius: 32),
-                  const SizedBox(width: AppSpacing.l),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(profile.fullName, style: AppTypography.tampilanKecil.copyWith(color: AppColors.tanah)),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${profile.district ?? '-'} · Reputasi ${profile.reputation}',
-                          style: AppTypography.kecil.copyWith(color: AppColors.tanahLemah),
-                        ),
-                      ],
+        child: _loading
+            ? const _KerangkaProfil()
+            : profile == null
+                ? KeadaanGalat(message: _error ?? 'Terjadi galat. Coba lagi.', onRetry: _muat)
+                : RefreshIndicator(
+                    onRefresh: _muat,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(AppSpacing.l),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              InitialAvatar(name: profile.fullName, radius: 32),
+                              const SizedBox(width: AppSpacing.l),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(profile.fullName, style: AppTypography.tampilanKecil.copyWith(color: AppColors.tanah)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${profile.district ?? '-'} · Reputasi ${profile.reputation}',
+                                      style: AppTypography.kecil.copyWith(color: AppColors.tanahLemah),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          Container(
+                            padding: const EdgeInsets.all(AppSpacing.l),
+                            decoration: BoxDecoration(
+                              color: AppColors.kertas,
+                              borderRadius: BorderRadius.circular(AppRadius.sedang),
+                              border: Border.all(color: AppColors.garis),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _Stat(icon: Icons.bolt, color: AppColors.padi, value: '${stats?.totalXp ?? 0}', label: 'XP'),
+                                _Stat(icon: Icons.local_fire_department, color: AppColors.cabai, value: '${stats?.streakDays ?? 0}', label: 'Runtutan'),
+                                _Stat(icon: Icons.workspace_premium, color: AppColors.daun, value: '${stats?.badgeCount ?? 0}', label: 'Lencana'),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+                            decoration: BoxDecoration(
+                              color: AppColors.kertas,
+                              borderRadius: BorderRadius.circular(AppRadius.sedang),
+                              border: Border.all(color: AppColors.garis),
+                            ),
+                            child: Column(
+                              children: [
+                                MenuRow(icon: Icons.edit_outlined, label: 'Ubah Profil', onTap: () => context.push('/saya/ubah')),
+                                const Divider(height: 1, color: AppColors.garis),
+                                MenuRow(icon: Icons.bar_chart, label: 'Riwayat XP', onTap: () => context.push('/saya/xp')),
+                                const Divider(height: 1, color: AppColors.garis),
+                                MenuRow(icon: Icons.workspace_premium_outlined, label: 'Koleksi Lencana', onTap: () => context.push('/saya/lencana')),
+                                const Divider(height: 1, color: AppColors.garis),
+                                MenuRow(icon: Icons.notifications_outlined, label: 'Pusat Notifikasi', onTap: () => context.push('/saya/notifikasi')),
+                                const Divider(height: 1, color: AppColors.garis),
+                                MenuRow(icon: Icons.settings_outlined, label: 'Pengaturan', onTap: () => context.push('/saya/pengaturan')),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.l),
-                decoration: BoxDecoration(
-                  color: AppColors.kertas,
-                  borderRadius: BorderRadius.circular(AppRadius.sedang),
-                  border: Border.all(color: AppColors.garis),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _Stat(icon: Icons.bolt, color: AppColors.padi, value: '${stats.totalXp}', label: 'XP'),
-                    _Stat(icon: Icons.local_fire_department, color: AppColors.cabai, value: '${stats.streakDays}', label: 'Runtutan'),
-                    _Stat(icon: Icons.workspace_premium, color: AppColors.daun, value: '${stats.badgeCount}', label: 'Lencana'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
-                decoration: BoxDecoration(
-                  color: AppColors.kertas,
-                  borderRadius: BorderRadius.circular(AppRadius.sedang),
-                  border: Border.all(color: AppColors.garis),
-                ),
-                child: Column(
-                  children: [
-                    MenuRow(icon: Icons.edit_outlined, label: 'Ubah Profil', onTap: () => context.push('/saya/ubah')),
-                    const Divider(height: 1, color: AppColors.garis),
-                    MenuRow(icon: Icons.bar_chart, label: 'Riwayat XP', onTap: () => context.push('/saya/xp')),
-                    const Divider(height: 1, color: AppColors.garis),
-                    MenuRow(icon: Icons.workspace_premium_outlined, label: 'Koleksi Lencana', onTap: () => context.push('/saya/lencana')),
-                    const Divider(height: 1, color: AppColors.garis),
-                    MenuRow(icon: Icons.notifications_outlined, label: 'Pusat Notifikasi', onTap: () => context.push('/saya/notifikasi')),
-                    const Divider(height: 1, color: AppColors.garis),
-                    MenuRow(icon: Icons.settings_outlined, label: 'Pengaturan', onTap: () => context.push('/saya/pengaturan')),
-                  ],
-                ),
-              ),
+      ),
+    );
+  }
+}
+
+/// Kerangka muat saat profil dan statistik baru diambil dari server.
+class _KerangkaProfil extends StatelessWidget {
+  const _KerangkaProfil();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              KerangkaMuat(height: 64, width: 64, radius: BorderRadius.all(Radius.circular(32))),
+              SizedBox(width: AppSpacing.l),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                KerangkaMuat(height: 20, width: 160),
+                SizedBox(height: AppSpacing.s),
+                KerangkaMuat(height: 14, width: 120),
+              ])),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.xl),
+          const KerangkaMuat(height: 96),
+          const SizedBox(height: AppSpacing.xl),
+          const KerangkaMuat(height: 240),
+        ],
       ),
     );
   }

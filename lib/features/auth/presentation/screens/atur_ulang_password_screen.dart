@@ -1,61 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
+import 'package:tandur/features/auth/data/auth_repository.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
-
-/// Mock service untuk simulasi reset password.
-/// Kontrak mengikuti API_DOCS.md:
-///   POST /api/auth/reset-password
-///   Request: { "token": "...", "newPassword": "...", "confirmPassword": "..." }
-///   Success: { "msg": "Password diubah. Silakan masuk." }
-///   Error token: { "msg": { "token": ["Tautan tidak valid atau kedaluwarsa."] } }
-///   Error mismatch: { "msg": { "confirmPassword": ["Konfirmasi tidak cocok."] } }
-class _MockResetService {
-  static Future<Map<String, dynamic>> reset({
-    required String token,
-    required String newPassword,
-    required String confirmPassword,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    // Simulasi token kedaluwarsa
-    if (token == 'expired') {
-      return {
-        'success': false,
-        'errors': {'token': 'Tautan tidak valid atau kedaluwarsa.'},
-      };
-    }
-
-    // Simulasi mismatch (normalnya dicek di client, tapi server juga menjaganya)
-    if (newPassword != confirmPassword) {
-      return {
-        'success': false,
-        'errors': {'confirmPassword': 'Konfirmasi tidak cocok.'},
-      };
-    }
-
-    return {'success': true, 'msg': 'Password diubah. Silakan masuk.'};
-  }
-}
 
 /// Screen 10 — Atur Ulang Password.
 /// Endpoint: POST /api/auth/reset-password
 /// Request: { "token": "...", "newPassword": "...", "confirmPassword": "..." }
 ///
 /// Token diterima via deep link / URL param (simulasi dengan field input untuk demo).
-class AturUlangPasswordScreen extends StatefulWidget {
+class AturUlangPasswordScreen extends ConsumerStatefulWidget {
   /// Token dari deep link (opsional, di preview diisi manual).
   final String? token;
 
   const AturUlangPasswordScreen({super.key, this.token});
 
   @override
-  State<AturUlangPasswordScreen> createState() => _AturUlangPasswordScreenState();
+  ConsumerState<AturUlangPasswordScreen> createState() => _AturUlangPasswordScreenState();
 }
 
-class _AturUlangPasswordScreenState extends State<AturUlangPasswordScreen> {
+class _AturUlangPasswordScreenState extends ConsumerState<AturUlangPasswordScreen> {
   final _passwordController = TextEditingController();
   final _konfirmasiController = TextEditingController();
   final _konfirmasiFocus = FocusNode();
@@ -108,24 +76,25 @@ class _AturUlangPasswordScreenState extends State<AturUlangPasswordScreen> {
     // Gunakan token dari deep link jika ada, atau 'demo-token' untuk preview
     final token = widget.token ?? 'demo-token';
 
-    final result = await _MockResetService.reset(
-      token: token,
-      newPassword: _passwordController.text,
-      confirmPassword: _konfirmasiController.text,
-    );
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (result['success'] == true) {
-      setState(() => _berhasil = true);
-    } else {
-      final errors = result['errors'] as Map<String, dynamic>?;
+    try {
+      await ref.read(authRepositoryProvider).resetPassword(
+            token: token,
+            newPassword: _passwordController.text,
+            confirmPassword: _konfirmasiController.text,
+          );
+      if (!mounted) return;
       setState(() {
-        _tokenError = errors?['token'] as String?;
-        _konfirmasiError = errors?['confirmPassword'] as String?;
+        _isLoading = false;
+        _berhasil = true;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _tokenError = e.fieldErrors?['token']?.join('\n');
+        _konfirmasiError = e.fieldErrors?['confirmPassword']?.join('\n');
         if (_tokenError == null && _konfirmasiError == null) {
-          _serverError = 'Terjadi masalah. Coba lagi dalam beberapa saat.';
+          _serverError = e.message;
         }
       });
     }

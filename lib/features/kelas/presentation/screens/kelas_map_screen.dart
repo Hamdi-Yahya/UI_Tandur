@@ -1,86 +1,158 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_exception.dart';
+import 'package:tandur/core/network/app_enums.dart';
+import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/features/kelas/data/kelas_mock_data.dart';
+import 'package:tandur/features/kelas/data/learning_repository.dart';
 import 'package:tandur/features/kelas/presentation/widgets/gamification_widgets.dart';
 import 'package:tandur/features/kelas/presentation/widgets/kelas_widgets.dart';
 import 'package:tandur/features/kelas/presentation/widgets/terrace_map.dart';
 
-class KelasMapScreen extends StatefulWidget {
+class KelasMapScreen extends ConsumerStatefulWidget {
   const KelasMapScreen({super.key});
 
   @override
-  State<KelasMapScreen> createState() => _KelasMapScreenState();
+  ConsumerState<KelasMapScreen> createState() => _KelasMapScreenState();
 }
 
-class _KelasMapScreenState extends State<KelasMapScreen> {
+class _KelasMapScreenState extends ConsumerState<KelasMapScreen> {
   String _selectedCommodity = 'Cabai';
+  LearningMap? _map;
+  String? _errorMessage;
+
+  /// Nilai API komoditas yang sedang dipilih (CABAI/TERONG/PADI).
+  String get _selectedCommodityApiValue {
+    switch (_selectedCommodity) {
+      case 'Terong':
+        return Commodity.terong.apiValue;
+      case 'Padi':
+        return Commodity.padi.apiValue;
+      default:
+        return Commodity.cabai.apiValue;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMap();
+  }
+
+  Future<void> _loadMap() async {
+    setState(() {
+      _map = null;
+      _errorMessage = null;
+    });
+    try {
+      final map = await ref
+          .read(learningRepositoryProvider)
+          .getMap(commodity: _selectedCommodityApiValue);
+      if (!mounted) return;
+      setState(() {
+        _map = map;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.message;
+      });
+    }
+  }
+
+  /// Konversi status dari API ke status visual node peta.
+  TerraceNodeStatus _toTerraceStatus(NodeStatus status) {
+    switch (status) {
+      case NodeStatus.locked:
+        return TerraceNodeStatus.locked;
+      case NodeStatus.available:
+        return TerraceNodeStatus.available;
+      case NodeStatus.inProgress:
+        return TerraceNodeStatus.inProgress;
+      case NodeStatus.completed:
+        return TerraceNodeStatus.completed;
+      case NodeStatus.perfect:
+        return TerraceNodeStatus.perfect;
+      case NodeStatus.unknown:
+        return TerraceNodeStatus.locked;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    List<TerraceNode> currentNodes;
-    switch (_selectedCommodity) {
-      case 'Terong':
-        currentNodes = KelasMockData.terongNodes;
-        break;
-      case 'Padi':
-        currentNodes = KelasMockData.padiNodes;
-        break;
-      case 'Cabai':
-      default:
-        currentNodes = KelasMockData.cabaiNodes;
-        break;
-    }
-
     return Scaffold(
       backgroundColor: AppColors.embun,
       body: SafeArea(
         child: Column(
           children: [
             // 1. Header Gamifikasi
-            const GamificationHeader(
-              streak: KelasMockData.currentStreak,
-              xp: KelasMockData.currentXp,
-              lives: KelasMockData.currentLives,
+            GamificationHeader(
+              streak: _map?.streakDays ?? 0,
+              xp: _map?.totalXp ?? 0,
+              lives: _map?.lives ?? 0,
             ),
-            
+
             // 2. Tab Komoditas
             CommodityTabs(
               selectedCommodity: _selectedCommodity,
               onSelected: (commodity) {
+                if (commodity == _selectedCommodity) return;
                 setState(() {
                   _selectedCommodity = commodity;
                 });
+                _loadMap();
               },
             ),
 
             // 3. Peta Terasering (Flexible to take remaining space)
-            Expanded(
-              child: TerraceMap(
-                nodes: currentNodes,
-                onNodeTap: (node) {
-                  if (node.status == TerraceNodeStatus.locked) {
-                    // Tampilkan snackbar atau bottom sheet syarat
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('${node.title} masih terkunci. Selesaikan petak sebelumnya.'),
-                        backgroundColor: AppColors.tanah,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  } else {
-                    // Navigasi ke detail petak
-                    context.push('/kelas/petak/${node.id}');
-                  }
-                },
-              ),
-            ),
+            Expanded(child: _buildBody()),
           ],
         ),
       ),
-      // Dummy bottom nav placeholders can be added here or in a shell route later.
-      // For now, the user request says: "Jangan membuat bottom navigation final" 
-      // but they provided a simple structure in DESAIN.md. We will just focus on the screen content.
+    );
+  }
+
+  Widget _buildBody() {
+    if (_errorMessage != null) {
+      return KeadaanGalat(message: _errorMessage!, onRetry: _loadMap);
+    }
+
+    final map = _map;
+    if (map == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.daun),
+      );
+    }
+
+    return TerraceMap(
+      nodes: map.nodes.map((node) {
+        return TerraceNode(
+          id: node.levelId,
+          title: node.title,
+          code: node.code,
+          status: _toTerraceStatus(node.status),
+          progress: node.progressPercent / 100,
+        );
+      }).toList(),
+      onNodeTap: (node) {
+        if (node.status == TerraceNodeStatus.locked) {
+          // Tampilkan snackbar atau bottom sheet syarat
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${node.title} masih terkunci. Selesaikan petak sebelumnya.',
+              ),
+              backgroundColor: AppColors.tanah,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else {
+          // Navigasi ke detail petak
+          context.push('/kelas/petak/${node.id}');
+        }
+      },
     );
   }
 }
