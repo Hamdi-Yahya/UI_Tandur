@@ -8,6 +8,8 @@ import 'package:tandur/core/theme/app_typography.dart';
 import 'package:tandur/features/auth/presentation/auth_controller.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
 
+import 'package:tandur/features/onboarding/data/onboarding_repository.dart';
+
 /// Screen 7 — Daftar Akun (Registrasi Progresif).
 /// Endpoint: POST /api/auth/signup
 /// Request: { "fullName": "...", "email": "...", "password": "..." }
@@ -94,7 +96,29 @@ class _DaftarScreenState extends ConsumerState<DaftarScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
-      context.go('/onboarding');
+
+      // Cek apakah ada preferensi dari Onboarding
+      final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
+      if (extra != null && extra.containsKey('commodities')) {
+        final commodities =
+            (extra['commodities'] as List<dynamic>?)?.cast<String>() ?? [];
+        final hasFarmed = extra['hasFarmed'] as bool? ?? false;
+        try {
+          final result = await ref
+              .read(onboardingRepositoryProvider)
+              .completeOnboarding(
+                commodities: commodities,
+                hasFarmed: hasFarmed,
+              );
+          if (!mounted) return;
+          context.go(result.startRoute.isNotEmpty ? result.startRoute : '/kelas');
+          return;
+        } catch (_) {
+          // Abaikan jika gagal simpan, tetap lanjut
+        }
+      }
+
+      context.go('/kelas');
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -207,7 +231,10 @@ class _DaftarScreenState extends ConsumerState<DaftarScreen> {
                       // Link masuk
                       Center(
                         child: TextButton(
-                          onPressed: () => context.go('/masuk'),
+                          onPressed: () {
+                            final extra = GoRouterState.of(context).extra;
+                            context.go('/masuk', extra: extra);
+                          },
                           style: TextButton.styleFrom(
                             minimumSize: const Size(48, 48),
                           ),

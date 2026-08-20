@@ -52,6 +52,10 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
       if (!mounted) return;
       setState(() => _tipIndex = (_tipIndex + 1) % _tips.length);
     });
+    // Langsung buka kamera saat layar dibuka
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ambilFoto(ImageSource.camera);
+    });
   }
 
   @override
@@ -240,8 +244,24 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(AppRadius.sedang),
                           child: _foto == null
-                              ? const Center(
-                                  child: Icon(Icons.eco_outlined, color: Colors.white24, size: 64),
+                              ? GestureDetector(
+                                  onTap: () => _ambilFoto(ImageSource.camera),
+                                  child: Container(
+                                    color: Colors.black,
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.camera_alt_outlined, color: Colors.white38, size: 64),
+                                          const SizedBox(height: AppSpacing.m),
+                                          Text(
+                                            'Ketuk untuk membuka kamera',
+                                            style: AppTypography.isi.copyWith(color: Colors.white54),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 )
                               : Image.file(
                                   File(_foto!.path),

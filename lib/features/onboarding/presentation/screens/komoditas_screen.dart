@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/network/app_enums.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
@@ -28,13 +27,34 @@ class _KomoditasScreenState extends ConsumerState<KomoditasScreen> {
   String? _error;
   bool _isNavigating = false;
 
+  static const List<OnboardingCommodity> _defaultKomoditas = [
+    OnboardingCommodity(
+      commodity: Commodity.cabai,
+      name: 'Cabai Rawit',
+      cycleDays: 90,
+      minUnit: '10 polybag',
+    ),
+    OnboardingCommodity(
+      commodity: Commodity.terong,
+      name: 'Terong Ungu',
+      cycleDays: 75,
+      minUnit: '5 polybag',
+    ),
+    OnboardingCommodity(
+      commodity: Commodity.padi,
+      name: 'Padi Sawah',
+      cycleDays: 115,
+      minUnit: '1 petak',
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
     _loadKomoditas();
   }
 
-  /// Ambil daftar komoditas dari API. Gagal → tampilkan pesan + coba lagi.
+  /// Ambil daftar komoditas dari API. Gagal → fallback ke komoditas bawaan.
   Future<void> _loadKomoditas() async {
     setState(() {
       _isLoading = true;
@@ -44,20 +64,17 @@ class _KomoditasScreenState extends ConsumerState<KomoditasScreen> {
       final content = await ref.read(onboardingRepositoryProvider).getContent();
       if (!mounted) return;
       setState(() {
-        _komoditas = content.commodities;
+        _komoditas = content.commodities.isNotEmpty
+            ? content.commodities
+            : _defaultKomoditas;
         _isLoading = false;
-      });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _error = e.message;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
+        _komoditas = _defaultKomoditas;
         _isLoading = false;
-        _error = 'Terjadi galat. Coba lagi.';
+        _error = null;
       });
     }
   }
@@ -116,23 +133,41 @@ class _KomoditasScreenState extends ConsumerState<KomoditasScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Header: tombol kembali
+            // Header: tombol kembali dan tombol Masuk
             Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.s,
                 vertical: AppSpacing.xs,
               ),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  color: AppColors.tanah,
-                  onPressed: () => context.go('/onboarding'),
-                  tooltip: 'Kembali',
-                  iconSize: 24,
-                  padding: const EdgeInsets.all(12),
-                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    color: AppColors.tanah,
+                    onPressed: () => context.go('/onboarding'),
+                    tooltip: 'Kembali',
+                    iconSize: 24,
+                    padding: const EdgeInsets.all(12),
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                  ),
+                  Semantics(
+                    label: 'Masuk ke akun yang sudah ada',
+                    child: TextButton(
+                      onPressed: () => context.go('/masuk'),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        foregroundColor: AppColors.daun,
+                      ),
+                      child: Text(
+                        'Masuk',
+                        style: AppTypography.isiTebal.copyWith(
+                          color: AppColors.daun,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 

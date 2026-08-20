@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_motion.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
@@ -47,6 +46,14 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
     AppColors.terongSamar,
   ];
 
+  /// Path aset lokal WebP sebagai fallback kalau API tidak kirim ilustrasi.
+  static const List<String> _asetLokal = [
+    'assets/illustrations/onboarding_1_pekarangan.webp',
+    'assets/illustrations/onboarding_2_kelas_tandur.webp',
+    'assets/illustrations/onboarding_3_periksa_tanaman.webp',
+    'assets/illustrations/onboarding_4_warung_tani.webp',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +67,7 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
   }
 
   /// Ambil slide dari GET /api/onboarding. Gagal (backend mati / offline)
-  /// → jatuh balik ke konstanta lokal agar alur onboarding tetap jalan.
+  /// → jatuh balik ke konstanta lokal agar alur onboarding tetap jalan lancar.
   Future<void> _loadContent() async {
     setState(() {
       _isLoading = true;
@@ -73,24 +80,24 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
         _pages = _mapSlides(content.slides);
         _isLoading = false;
       });
-    } on ApiException catch (e) {
-      _fallbackToLocal(e.message);
     } catch (_) {
-      _fallbackToLocal('Terjadi galat. Menampilkan konten bawaan.');
+      _fallbackToLocal();
     }
   }
 
-  void _fallbackToLocal(String? message) {
+  void _fallbackToLocal() {
     if (!mounted) return;
     setState(() {
       _pages = OnboardingPageData.defaultPages;
       _isLoading = false;
-      _error = message;
+      _error = null;
     });
   }
 
   /// Konversi slide API ke [OnboardingPageData] yang dipakai widget
   /// perkenalan. Daftar kosong dianggap gagal → konstanta lokal.
+  /// Kalau `illustration` dari API null/kosong, pakai aset WebP lokal
+  /// supaya gambar tidak pernah jatuh ke placeholder.
   List<OnboardingPageData> _mapSlides(List<OnboardingSlide> slides) {
     if (slides.isEmpty) return OnboardingPageData.defaultPages;
     return [
@@ -100,7 +107,10 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
           subtitle: slides[i].body,
           illustrationLabel: slides[i].title,
           illustrationColor: _warnaIlustrasi[i % _warnaIlustrasi.length],
-          imagePath: slides[i].illustration,
+          imagePath: (slides[i].illustration != null &&
+                  slides[i].illustration!.isNotEmpty)
+              ? slides[i].illustration
+              : (i < _asetLokal.length ? _asetLokal[i] : null),
         ),
     ];
   }
@@ -123,6 +133,12 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
   void _onSkip() {
     HapticFeedback.lightImpact();
     context.go('/onboarding/komoditas');
+  }
+
+  /// Langsung masuk jika user sudah punya akun sebelumnya.
+  void _onLogin() {
+    HapticFeedback.lightImpact();
+    context.go('/masuk');
   }
 
   @override
@@ -175,6 +191,7 @@ class _OnboardingIntroScreenState extends ConsumerState<OnboardingIntroScreen>
                     totalPages: _pages.length,
                     onNext: _onNext,
                     onSkip: _onSkip,
+                    onLogin: _onLogin,
                     nextLabel: _currentPage == _pages.length - 1 ? 'Mulai' : 'Lanjut',
                   );
                 },

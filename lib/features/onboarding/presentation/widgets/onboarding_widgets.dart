@@ -14,6 +14,7 @@ class OnboardingScaffold extends StatelessWidget {
   final int totalPages;
   final VoidCallback onNext;
   final VoidCallback onSkip;
+  final VoidCallback? onLogin;
   final String nextLabel;
 
   const OnboardingScaffold({
@@ -25,6 +26,7 @@ class OnboardingScaffold extends StatelessWidget {
     required this.totalPages,
     required this.onNext,
     required this.onSkip,
+    this.onLogin,
     this.nextLabel = 'Lanjut',
   });
 
@@ -35,22 +37,48 @@ class OnboardingScaffold extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Tombol Lewati di pojok kanan atas
-            Align(
-              alignment: Alignment.centerRight,
-              child: Semantics(
-                label: 'Lewati perkenalan',
-                child: TextButton(
-                  onPressed: onSkip,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(48, 48), // touch target 48dp
-                    foregroundColor: AppColors.tanahLemah,
+            // Bar atas: Tombol Masuk (kiri) & Lewati (kanan)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (onLogin != null)
+                    Semantics(
+                      label: 'Masuk ke akun yang sudah ada',
+                      child: TextButton(
+                        onPressed: onLogin,
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                          foregroundColor: AppColors.daun,
+                        ),
+                        child: Text(
+                          'Masuk',
+                          style: AppTypography.isiTebal.copyWith(
+                            color: AppColors.daun,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 48),
+                  Semantics(
+                    label: 'Lewati perkenalan',
+                    child: TextButton(
+                      onPressed: onSkip,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48), // touch target 48dp
+                        foregroundColor: AppColors.tanahLemah,
+                      ),
+                      child: Text(
+                        'Lewati',
+                        style: AppTypography.isi.copyWith(
+                          color: AppColors.tanahLemah,
+                        ),
+                      ),
+                    ),
                   ),
-                  child: Text(
-                    'Lewati',
-                    style: AppTypography.isi.copyWith(color: AppColors.tanahLemah),
-                  ),
-                ),
+                ],
               ),
             ),
 

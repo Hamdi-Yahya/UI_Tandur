@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tandur/core/network/api_client.dart';
 import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/theme/app_colors.dart';
 import 'package:tandur/core/theme/app_spacing.dart';
@@ -37,7 +38,21 @@ class _PengalamanScreenState extends ConsumerState<PengalamanScreen> {
     HapticFeedback.lightImpact();
     setState(() => _isSubmitting = true);
     try {
-      final result = await ref.read(onboardingRepositoryProvider).completeOnboarding(
+      final token = await ref.read(secureTokenStoreProvider).accessToken();
+
+      // Jika belum login/daftar, bawa preferensi ke halaman Daftar
+      if (token == null || token.isEmpty) {
+        if (!mounted) return;
+        context.go('/daftar', extra: {
+          'commodities': widget.selectedCommodities,
+          'hasFarmed': _pilihan == 'sudah',
+        });
+        return;
+      }
+
+      final result = await ref
+          .read(onboardingRepositoryProvider)
+          .completeOnboarding(
             commodities: widget.selectedCommodities,
             hasFarmed: _pilihan == 'sudah',
           );
@@ -45,9 +60,23 @@ class _PengalamanScreenState extends ConsumerState<PengalamanScreen> {
       context.go(_routeTujuan(result.startRoute));
     } on ApiException catch (e) {
       if (!mounted) return;
+      // Jika token tidak valid / kedaluwarsa (401), arahkan ke Daftar
+      if (e.statusCode == 401 || e.message.toLowerCase().contains('token')) {
+        context.go('/daftar', extra: {
+          'commodities': widget.selectedCommodities,
+          'hasFarmed': _pilihan == 'sudah',
+        });
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message)),
       );
+    } catch (_) {
+      if (!mounted) return;
+      context.go('/daftar', extra: {
+        'commodities': widget.selectedCommodities,
+        'hasFarmed': _pilihan == 'sudah',
+      });
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

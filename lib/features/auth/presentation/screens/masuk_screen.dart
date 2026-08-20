@@ -7,6 +7,7 @@ import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
 import 'package:tandur/features/auth/presentation/auth_controller.dart';
 import 'package:tandur/features/auth/presentation/widgets/auth_widgets.dart';
+import 'package:tandur/features/onboarding/data/onboarding_repository.dart';
 
 /// Screen 8 — Masuk (Sign In).
 /// Endpoint: POST /api/auth/signin
@@ -73,6 +74,28 @@ class _MasukScreenState extends ConsumerState<MasukScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
+
+      // Cek apakah ada preferensi dari Onboarding
+      final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
+      if (extra != null && extra.containsKey('commodities')) {
+        final commodities =
+            (extra['commodities'] as List<dynamic>?)?.cast<String>() ?? [];
+        final hasFarmed = extra['hasFarmed'] as bool? ?? false;
+        try {
+          final result = await ref
+              .read(onboardingRepositoryProvider)
+              .completeOnboarding(
+                commodities: commodities,
+                hasFarmed: hasFarmed,
+              );
+          if (!mounted) return;
+          context.go(result.startRoute.isNotEmpty ? result.startRoute : '/kelas');
+          return;
+        } catch (_) {
+          // Abaikan jika gagal simpan, tetap lanjut
+        }
+      }
+
       final isNewUser = ref.read(authControllerProvider).isNewUser;
       context.go(isNewUser ? '/onboarding' : '/kelas');
     } on ApiException catch (e) {
@@ -184,7 +207,10 @@ class _MasukScreenState extends ConsumerState<MasukScreen> {
                     // Link ke daftar
                     Center(
                       child: TextButton(
-                        onPressed: () => context.go('/daftar'),
+                        onPressed: () {
+                          final extra = GoRouterState.of(context).extra;
+                          context.go('/daftar', extra: extra);
+                        },
                         style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
                         child: RichText(
                           text: TextSpan(
@@ -200,47 +226,12 @@ class _MasukScreenState extends ConsumerState<MasukScreen> {
                         ),
                       ),
                     ),
-
-                    // Hint preview (hanya untuk development)
-                    const SizedBox(height: AppSpacing.xl),
-                    const _PreviewHint(),
                   ],
                 ),
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Widget hint untuk demo — ditampilkan selama mode development.
-class _PreviewHint extends StatelessWidget {
-  const _PreviewHint();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.m),
-      decoration: BoxDecoration(
-        color: AppColors.padiSamar,
-        borderRadius: BorderRadius.circular(AppRadius.kecil),
-        border: Border.all(color: AppColors.padi.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'BACKEND TANDUR',
-            style: AppTypography.label.copyWith(color: AppColors.padi),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Masuk memakai akun dari POST /api/auth/signin. Pastikan backend berjalan.',
-            style: AppTypography.kecil.copyWith(color: AppColors.tanahLemah),
-          ),
-        ],
       ),
     );
   }
