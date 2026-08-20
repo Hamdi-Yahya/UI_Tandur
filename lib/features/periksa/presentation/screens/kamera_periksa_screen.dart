@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:tandur/core/network/api_exception.dart';
 import 'package:tandur/core/network/app_enums.dart';
 import 'package:tandur/core/theme/app_colors.dart';
@@ -16,9 +22,9 @@ import 'package:tandur/features/periksa/data/periksa_repository.dart';
 /// Layar kamera Periksa Tanaman — DESAIN.md §4.5. "Layar paling sunyi di
 /// aplikasi", hampir tanpa warna. Alur nyata yang tersambung: ambil manifest
 /// model per komoditas, foto dari kamera/galeri, unggah ke Supabase Storage
-/// lewat `POST /api/uploads/signed-url` + PUT bytes (API_DOCS §4.4), kirim
-/// `POST /api/scans`, lalu buka hasil pindainya. Inferensi TFLite masih
-/// simulasi (PRD §7.3) sampai model on-device masuk.
+/// lewat `POST /api/uploads/signed-url` + PUT bytes (API_DOCS §4.4), jalankan
+/// inferensi TFLite on-device dengan model yang diunduh & diverifikasi SHA-256,
+/// kirim `POST /api/scans`, lalu buka hasil pindainya.
 ///
 /// Batas simpan 30 pindai/hari dan 404 `MODEL_NOT_AVAILABLE` ditangani di
 /// sini; file > 5 MB ditolak lebih dulu (batas backend, API_DOCS §4.4).
@@ -160,7 +166,30 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
     }
     if (foto == null || !mounted) return;
 
-    final bytes = await foto.readAsBytes();
+    final rawBytes = await foto.readAsBytes();
+
+    // ALASAN: Decode dan encode ulang ke JPEG untuk MEMBUANG METADATA EXIF.
+    // Foto dari kamera ponsel menyimpan koordinat GPS presisi lokasi rumah dan
+    // kebun pengguna di dalam metadata EXIF. Dengan melakukan decode ke data piksel
+    // lalu meng-encode ulang menjadi JPEG baru, seluruh metadata EXIF (termasuk tag GPS)
+    // terbuang secara alami. Langkah ini adalah perlindungan privasi data pribadi pengguna
+    // yang WAJIB, bukan sekadar optimasi ukuran berkas.
+    final decodedImage = img.decodeImage(rawBytes);
+    if (decodedImage == null) {
+      // Jika decode gagal, JANGAN PERNAH mengunggah berkas mentah sebagai cadangan (fallback),
+      // karena berkas asli masih memuat koordinat GPS yang membocorkan privasi pengguna.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Format foto tidak valid atau gagal diproses.')),
+      );
+      return;
+    }
+
+    // Encode ulang ke JPEG murni tanpa metadata EXIF.
+    // Hasil encode ulang ini digunakan untuk SEMUA langkah berikutnya: pemeriksaan ukuran,
+    // sizeBytes pada getSignedUploadUrl, dan data yang dikirim ke uploadImageBytes.
+    final bytes = Uint8List.fromList(img.encodeJpg(decodedImage, quality: 85));
+
     if (bytes.length > _maxBytes) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,13 +211,19 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
         sizeBytes: bytes.length,
       );
       await repo.uploadImageBytes(signed.uploadUrl, bytes);
-      final predictions = _simulasiInferensi(plant.commodity, manifest.labels);
+
+      // Unduh atau muat berkas model TFLite yang sudah ter-cache dan terverifikasi SHA-256
+      final modelFile = await _muatAtauUnduhModel(manifest);
+
+      // Jalankan inferensi TFLite on-device dengan pengukuran waktu nyata
+      final inferensi = _jalankanInferensi(decodedImage, manifest, modelFile);
+
       final scan = await repo.saveScan(
         plantId: plant.plantId,
         imageUrl: signed.fileUrl,
         modelVersion: manifest.version,
-        inferenceMs: 800,
-        predictions: predictions,
+        inferenceMs: inferensi.inferenceMs,
+        predictions: inferensi.predictions,
         capturedAt: DateTime.now(),
       );
       if (!mounted) return;
@@ -199,30 +234,144 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
           ? 'Model belum tersedia untuk komoditas ini.'
           : e.message;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(pesan)));
+    } catch (e) {
+      if (!mounted) return;
+      // ALASAN: Tampilkan galat yang jujur ke pengguna jika model gagal diunduh,
+      // gagal verifikasi SHA-256, atau gagal dieksekusi. JANGAN jatuh kembali ke simulasi.
+      final pesan = e.toString().replaceAll('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memeriksa tanaman: $pesan')),
+      );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
   }
 
-  /// Inferensi masih simulasi sampai TFLite + kamera masuk (PRD §7.3):
-  /// satu dugaan utama per komoditas, sisanya di bawah ambang 0.10 supaya
-  /// penyaringan "confidence > 0.10, maks 3" (API_DOCS v3.2) tetap milik
-  /// backend. Label diambil dari manifes, bukan hardcode.
-  List<ScanPrediction> _simulasiInferensi(String commodity, List<String> labels) {
-    const utama = {
-      'CABAI': 'VIRUS_KUNING_KERITING',
-      'TERONG': 'HAMA_SERANGGA',
-      'PADI': 'BLAS_DAUN',
-    };
-    final labelUtama = utama[commodity.toUpperCase()] ?? (labels.isEmpty ? null : labels.first);
-    return [
-      for (final l in labels)
-        ScanPrediction(
-          label: l,
-          displayName: l,
-          confidence: l == labelUtama ? 0.81 : 0.07,
+  /// Mengunduh atau memuat berkas model TFLite dari penyimpanan lokal aplikasi.
+  /// ALASAN: Berkas model berukuran ~6 MB sehingga wajib di-cache di perangkat
+  /// agar tidak menguras kuota seluler pengguna tiap kali memindai.
+  /// Nama berkas memuat komoditas dan versi agar pembaruan model tidak memakai berkas lama.
+  /// Integritas berkas diverifikasi menggunakan SHA-256 untuk mendeteksi unduhan yang terpotong.
+  Future<File> _muatAtauUnduhModel(ModelManifest manifest) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final modelsDir = Directory('${dir.path}/models');
+    if (!modelsDir.existsSync()) {
+      await modelsDir.create(recursive: true);
+    }
+
+    // Nama berkas memuat komoditas dan versi agar model baru tidak memakai cache model lama
+    final fileName = 'model_${manifest.commodity.apiValue.toLowerCase()}_v${manifest.version}.tflite';
+    final modelFile = File('${modelsDir.path}/$fileName');
+
+    // Cek apakah berkas model yang valid sudah ada di penyimpanan lokal
+    if (await modelFile.exists()) {
+      final existingBytes = await modelFile.readAsBytes();
+      final existingDigest = sha256.convert(existingBytes).toString();
+      if (existingDigest.toLowerCase() == manifest.sha256.toLowerCase()) {
+        return modelFile;
+      }
+      // ALASAN: Jika berkas lokal rusak atau checksum tidak cocok, hapus berkas rusak tersebut.
+      await modelFile.delete();
+    }
+
+    // Unduh berkas model ke berkas sementara (.tmp)
+    final tempFile = File('${modelFile.path}.tmp');
+    if (await tempFile.exists()) {
+      await tempFile.delete();
+    }
+
+    final dio = Dio();
+    await dio.download(manifest.fileUrl, tempFile.path);
+
+    // WAJIB: Hitung SHA-256 berkas hasil unduhan dan bandingkan dengan manifest.sha256.
+    // ALASAN: Unduhan 6 MB bisa terputus di tengah jalan tanpa galat HTTP. Model yang rusak
+    // tidak melempar galat saat inferensi, melainkan menghasilkan tebakan ngawur yang
+    // tampak meyakinkan. Pemeriksaan sha256 menjamin keutuhan berkas model.
+    final downloadedBytes = await tempFile.readAsBytes();
+    final downloadedDigest = sha256.convert(downloadedBytes).toString();
+
+    if (downloadedDigest.toLowerCase() != manifest.sha256.toLowerCase()) {
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      throw Exception(
+        'Integritas berkas model tidak valid (SHA-256 tidak cocok). Unduhan kemungkinan rusak atau terpotong.',
+      );
+    }
+
+    // Ganti nama berkas sementara ke nama berkas definitif
+    await tempFile.rename(modelFile.path);
+    return modelFile;
+  }
+
+  /// Menjalankan inferensi TFLite nyata pada gambar yang telah diubah ukurannya.
+  /// ALASAN: inputSize (cabai/terong: 224, padi: 320) dan urutan labels dibaca dari manifes
+  /// karena urutan label pada manifes adalah kontrak indeks keluaran model TFLite.
+  /// Waktu inferensi diukur secara nyata menggunakan Stopwatch.
+  ({List<ScanPrediction> predictions, int inferenceMs}) _jalankanInferensi(
+    img.Image decodedImage,
+    ModelManifest manifest,
+    File modelFile,
+  ) {
+    final interpreter = Interpreter.fromFile(modelFile);
+    try {
+      // Ubah ukuran foto sesuai inputSize dari manifes (jangan pernah di-hardcode)
+      final resized = img.copyResize(
+        decodedImage,
+        width: manifest.inputSize,
+        height: manifest.inputSize,
+      );
+
+      // Siapkan tensor masukan 4D: [1, inputSize, inputSize, 3] dengan nilai piksel mentah float32 (0–255)
+      final input = List.generate(
+        1,
+        (_) => List.generate(
+          manifest.inputSize,
+          (y) => List.generate(
+            manifest.inputSize,
+            (x) {
+              final pixel = resized.getPixel(x, y);
+              return [
+                pixel.r.toDouble(),
+                pixel.g.toDouble(),
+                pixel.b.toDouble(),
+              ];
+            },
+          ),
         ),
-    ];
+      );
+
+      // Siapkan tensor keluaran: [1, jumlah_label]
+      final output = List.generate(
+        1,
+        (_) => List<double>.filled(manifest.labels.length, 0.0),
+      );
+
+      // Ukur waktu inferensi sesungguhnya
+      final stopwatch = Stopwatch()..start();
+      interpreter.run(input, output);
+      stopwatch.stop();
+
+      final probabilities = output[0];
+
+      // Petakan keluaran model ke manifest.labels menurut indeks persis sesuai urutan manifes apa adanya
+      final predictions = List.generate(manifest.labels.length, (i) {
+        final conf = (i < probabilities.length) ? probabilities[i] : 0.0;
+        return ScanPrediction(
+          label: manifest.labels[i],
+          displayName: manifest.labels[i],
+          confidence: conf,
+        );
+      });
+
+      return (
+        predictions: predictions,
+        inferenceMs: stopwatch.elapsedMilliseconds,
+      );
+    } finally {
+      // Bebaskan resource interpreter setelah selesai dipakai untuk mencegah kebocoran memori
+      interpreter.close();
+    }
   }
 
   @override
