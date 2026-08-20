@@ -1,31 +1,73 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tandur/core/presentation/widgets/shared_widgets.dart';
+import 'package:tandur/core/theme/app_colors.dart';
+import 'package:tandur/core/theme/app_theme.dart';
 
-import 'package:tandur/main.dart';
-
+/// Uji dasar tema dan komponen bersama.
+///
+/// Berkas ini sebelumnya berisi "Counter increments smoke test" bawaan
+/// `flutter create`: mencari teks '0' lalu menekan ikon `+` yang tidak pernah
+/// ada di TANDUR. Akibatnya satu-satunya tes di proyek ini selalu gagal.
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const ProviderScope(child: TandurApp()));
+  group('AppTheme', () {
+    test('memakai Material 3 dan latar embun', () {
+      final theme = AppTheme.lightTheme;
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      expect(theme.useMaterial3, isTrue);
+      expect(theme.scaffoldBackgroundColor, AppColors.embun);
+    });
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  group('KeadaanGalat', () {
+    testWidgets('menampilkan pesan galat dan tombol coba lagi', (tester) async {
+      var dicoba = 0;
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: Scaffold(
+            body: KeadaanGalat(
+              message: 'Lesson terkunci. Selesaikan lesson sebelumnya dulu.',
+              onRetry: () => dicoba++,
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.text('Lesson terkunci. Selesaikan lesson sebelumnya dulu.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Coba lagi'));
+      await tester.pump();
+      expect(dicoba, 1);
+    });
+  });
+
+  group('KeadaanKosong', () {
+    testWidgets('menampilkan pesan dan aksi lanjutan', (tester) async {
+      var ditekan = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: Scaffold(
+            body: KeadaanKosong(
+              icon: Icons.eco_outlined,
+              message: 'Belum ada tanaman.',
+              actionLabel: 'Tambah Tanaman',
+              onAction: () => ditekan++,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Belum ada tanaman.'), findsOneWidget);
+      await tester.tap(find.text('Tambah Tanaman'));
+      await tester.pump();
+      expect(ditekan, 1);
+    });
   });
 }

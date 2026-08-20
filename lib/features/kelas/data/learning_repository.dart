@@ -301,13 +301,10 @@ enum LessonBlockType { heading, image, paragraph, callout, unknown }
 
 extension LessonBlockTypeX on LessonBlockType {
   static LessonBlockType fromApi(String? value) {
-    return LessonBlockType.values.firstWhere(
-      (e) => e.name.toUpperCase() == value,
-      orElse: () => LessonBlockType.unknown,
-    );
+    return enumFromApi(LessonBlockType.values, value, LessonBlockType.unknown);
   }
 
-  String get apiValue => name.toUpperCase();
+  String get apiValue => enumApiValue(name);
 }
 
 /// Satu halaman dalam materi CARD (HEADING/IMAGE/PARAGRAPH/CALLOUT).

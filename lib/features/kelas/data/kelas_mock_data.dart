@@ -203,6 +203,7 @@ class LevelDetail {
 enum LessonType {
   video,
   kartu,
+  latihan,
 }
 
 enum LessonStatus {
@@ -218,12 +219,16 @@ class LessonSummary {
   final String duration;
   final LessonStatus status;
 
+  /// XP yang didapat bila materi diselesaikan. 0 berarti tidak ditampilkan.
+  final int xpReward;
+
   const LessonSummary({
     required this.id,
     required this.title,
     required this.type,
     required this.duration,
     required this.status,
+    this.xpReward = 0,
   });
 }
 

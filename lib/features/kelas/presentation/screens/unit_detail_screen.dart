@@ -120,6 +120,8 @@ class _UnitDetailScreenState extends ConsumerState<UnitDetailScreen> {
         ),
         title: Text(
           _unit?.title ?? '',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: AppTypography.judul.copyWith(color: AppColors.tanah),
         ),
         centerTitle: true,
@@ -164,11 +166,14 @@ class _UnitDetailScreenState extends ConsumerState<UnitDetailScreen> {
               lesson: mock.LessonSummary(
                 id: lesson.lessonId,
                 title: lesson.title,
-                type: lesson.type == LessonType.video
-                    ? mock.LessonType.video
-                    : mock.LessonType.kartu,
+                type: _isExercise(lesson)
+                    ? mock.LessonType.latihan
+                    : (lesson.type == LessonType.video
+                          ? mock.LessonType.video
+                          : mock.LessonType.kartu),
                 duration: _formatDuration(lesson),
                 status: _toLessonStatus(lesson.status),
+                xpReward: lesson.xpReward,
               ),
               onTap: () {
                 if (_toLessonStatus(lesson.status) ==
@@ -191,25 +196,25 @@ class _UnitDetailScreenState extends ConsumerState<UnitDetailScreen> {
           );
         }),
 
-        const SizedBox(height: AppSpacing.m),
-
-        // Ujian Unit (Kuis Pemahaman)
-        _buildUnitQuizCard(context, unit),
+        // Ujian Unit (Kuis Pemahaman). Kurikulum hanya memasang ujian di
+        // sebagian unit, jadi kartunya disembunyikan kalau memang tidak ada
+        // — sebelumnya kartu terkunci ini selalu tampil dan menyesatkan.
+        if (unit.quiz != null) ...[
+          const SizedBox(height: AppSpacing.m),
+          _buildUnitQuizCard(context, unit.quiz!),
+        ],
       ],
     );
   }
 
-  Widget _buildUnitQuizCard(BuildContext context, UnitLessons unit) {
-    final quiz = unit.quiz;
-    final String? quizId = quiz?.quizId;
-    final mock.FinalTestStatus quizStatus = quiz == null
-        ? mock.FinalTestStatus.locked
-        : _toFinalTestStatus(quiz.status);
+  Widget _buildUnitQuizCard(BuildContext context, UnitQuizSummary quiz) {
+    final String quizId = quiz.quizId;
+    final mock.FinalTestStatus quizStatus = _toFinalTestStatus(quiz.status);
     final bool isLocked = quizStatus == mock.FinalTestStatus.locked;
     final bool isCompleted = quizStatus == mock.FinalTestStatus.completed;
 
     return InkWell(
-      onTap: quizId == null
+      onTap: isLocked
           ? null
           : () => context.push('/kelas/ujian-unit/$quizId'),
       borderRadius: BorderRadius.circular(AppRadius.sedang),

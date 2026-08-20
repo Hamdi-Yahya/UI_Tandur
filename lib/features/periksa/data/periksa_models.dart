@@ -26,7 +26,7 @@ extension MessageRoleX on MessageRole {
     }
   }
 
-  String get apiValue => name.toUpperCase();
+  String get apiValue => enumApiValue(name);
 }
 
 ScanStatus _scanStatusFromApi(String? value) {

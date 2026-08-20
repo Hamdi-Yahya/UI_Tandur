@@ -105,6 +105,8 @@ class _PetakDetailScreenState extends ConsumerState<PetakDetailScreen> {
         ),
         title: Text(
           _level?.title ?? '',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: AppTypography.judul.copyWith(color: AppColors.tanah),
         ),
         centerTitle: true,

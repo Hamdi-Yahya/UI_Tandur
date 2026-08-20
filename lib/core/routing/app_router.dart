@@ -14,6 +14,7 @@ import 'package:tandur/features/kelas/presentation/screens/unit_detail_screen.da
 import 'package:tandur/features/kelas/presentation/screens/lesson_screen.dart';
 import 'package:tandur/features/kelas/presentation/screens/exercise_screen.dart';
 import 'package:tandur/features/kelas/presentation/screens/exercise_result_screen.dart';
+import 'package:tandur/features/kelas/data/learning_repository.dart';
 import 'package:tandur/features/kelas/presentation/screens/quiz_screen.dart';
 import 'package:tandur/features/kelas/presentation/screens/quiz_result_screen.dart';
 import 'package:tandur/features/kelas/presentation/screens/final_test_screen.dart';
@@ -137,8 +138,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                           final extra = state.extra as Map<String, dynamic>? ?? {};
                           return ExerciseResultScreen(
                             id: state.pathParameters['id']!,
-                            score: extra['score'] as int? ?? 0,
+                            correctCount: extra['correctCount'] as int? ?? 0,
                             total: extra['total'] as int? ?? 1,
+                            scorePercent: extra['scorePercent'] as int? ?? 0,
+                            xpEarned: extra['xpEarned'] as int? ?? 0,
+                            results: (extra['results'] as List<ExerciseAnswerResult>?) ?? const [],
                           );
                         },
                       ),
@@ -154,8 +158,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                           final extra = state.extra as Map<String, dynamic>? ?? {};
                           return QuizResultScreen(
                             id: state.pathParameters['id']!,
-                            score: extra['score'] as int? ?? 0,
+                            scorePercent: extra['scorePercent'] as int? ?? 0,
+                            correctCount: extra['correctCount'] as int? ?? 0,
                             total: extra['total'] as int? ?? 1,
+                            xpEarned: extra['xpEarned'] as int? ?? 0,
                             passed: extra['passed'] as bool? ?? false,
                           );
                         },
@@ -172,8 +178,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                           final extra = state.extra as Map<String, dynamic>? ?? {};
                           return FinalTestResultScreen(
                             id: state.pathParameters['id']!,
-                            score: extra['score'] as int? ?? 0,
+                            scorePercent: extra['scorePercent'] as int? ?? 0,
+                            correctCount: extra['correctCount'] as int? ?? 0,
                             total: extra['total'] as int? ?? 1,
+                            xpEarned: extra['xpEarned'] as int? ?? 0,
+                            stars: extra['stars'] as int? ?? 0,
                             passed: extra['passed'] as bool? ?? false,
                           );
                         },

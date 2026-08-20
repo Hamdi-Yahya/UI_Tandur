@@ -126,6 +126,11 @@ class _KelasMapScreenState extends ConsumerState<KelasMapScreen> {
       );
     }
 
+    // Alasan terkunci per petak, dipakai saat node terkunci disentuh.
+    final lockReasons = {
+      for (final node in map.nodes) node.levelId: node.lockReason,
+    };
+
     return TerraceMap(
       nodes: map.nodes.map((node) {
         return TerraceNode(
@@ -138,11 +143,13 @@ class _KelasMapScreenState extends ConsumerState<KelasMapScreen> {
       }).toList(),
       onNodeTap: (node) {
         if (node.status == TerraceNodeStatus.locked) {
-          // Tampilkan snackbar atau bottom sheet syarat
+          final reason = lockReasons[node.id];
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '${node.title} masih terkunci. Selesaikan petak sebelumnya.',
+                reason != null && reason.isNotEmpty
+                    ? reason
+                    : '${node.title} masih terkunci. Selesaikan petak sebelumnya.',
               ),
               backgroundColor: AppColors.tanah,
               behavior: SnackBarBehavior.floating,

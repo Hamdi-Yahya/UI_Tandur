@@ -93,7 +93,13 @@ class _ExerciseScreenState extends ConsumerState<ExerciseScreen> {
       if (!mounted) return;
       context.pushReplacement(
         '/kelas/latihan/${exercise.lessonId}/hasil',
-        extra: {'score': result.score, 'total': result.totalCount},
+        extra: {
+          'correctCount': result.correctCount,
+          'total': result.totalCount,
+          'scorePercent': result.score,
+          'xpEarned': result.xpEarned,
+          'results': result.results,
+        },
       );
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -130,6 +136,17 @@ class _ExerciseScreenState extends ConsumerState<ExerciseScreen> {
         appBar: _buildAppBar(null),
         body: const Center(
           child: CircularProgressIndicator(color: AppColors.daun),
+        ),
+      );
+    }
+
+    if (exercise.questions.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.embun,
+        appBar: _buildAppBar(exercise),
+        body: KeadaanGalat(
+          message: 'Soal latihan belum tersedia untuk materi ini.',
+          onRetry: _load,
         ),
       );
     }

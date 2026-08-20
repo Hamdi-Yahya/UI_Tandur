@@ -125,8 +125,11 @@ class _FinalTestScreenState extends ConsumerState<FinalTestScreen> {
       context.pushReplacement(
         '/kelas/ujian/${widget.id}/hasil',
         extra: {
-          'score': result.score,
+          'scorePercent': result.score,
+          'correctCount': result.correctCount,
           'total': result.totalCount,
+          'xpEarned': result.xpEarned,
+          'stars': result.stars,
           'passed': result.passed,
         },
       );

@@ -174,8 +174,14 @@ class LessonCard extends StatelessWidget {
     final bool isCompleted = lesson.status == LessonStatus.completed;
 
     IconData getIcon() {
-      if (lesson.type == LessonType.video) return Icons.play_circle_fill;
-      return Icons.view_carousel; // Untuk tipe kartu
+      switch (lesson.type) {
+        case LessonType.video:
+          return Icons.play_circle_fill;
+        case LessonType.latihan:
+          return Icons.edit_note;
+        case LessonType.kartu:
+          return Icons.view_carousel;
+      }
     }
 
     return InkWell(
@@ -216,11 +222,31 @@ class LessonCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    lesson.duration,
-                    style: AppTypography.kecil.copyWith(
-                      color: isLocked ? AppColors.tanahSamar : AppColors.tanahLemah,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        lesson.duration,
+                        style: AppTypography.kecil.copyWith(
+                          color: isLocked
+                              ? AppColors.tanahSamar
+                              : AppColors.tanahLemah,
+                        ),
+                      ),
+                      if (lesson.xpReward > 0) ...[
+                        Text(
+                          '  ·  ',
+                          style: AppTypography.kecil.copyWith(
+                            color: AppColors.tanahSamar,
+                          ),
+                        ),
+                        Text(
+                          '+${lesson.xpReward} XP',
+                          style: AppTypography.kecil.copyWith(
+                            color: isLocked ? AppColors.tanahSamar : AppColors.padi,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),

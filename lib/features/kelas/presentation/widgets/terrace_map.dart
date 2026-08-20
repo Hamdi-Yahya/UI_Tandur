@@ -83,7 +83,18 @@ class _TerraceMapState extends State<TerraceMap>
       Offset(0.66, 0.56), // Node 3 — teras tengah kanan
       Offset(0.36, 0.76), // Node 4 — teras terbawah kiri
     ];
-    return defaultPositions.take(nodeCount).toList();
+    if (nodeCount <= defaultPositions.length) {
+      return defaultPositions.take(nodeCount).toList();
+    }
+
+    // Kurikulum masih bertambah; kalau satu komoditas punya lebih dari empat
+    // petak, posisinya dihitung sebagai zig-zag merata supaya tidak pernah
+    // mengakses indeks di luar daftar tetap di atas.
+    return List<Offset>.generate(nodeCount, (index) {
+      final t = (index + 0.5) / nodeCount;
+      final dx = index.isEven ? 0.52 : 0.32;
+      return Offset(dx, 0.10 + t * 0.78);
+    });
   }
 
   @override

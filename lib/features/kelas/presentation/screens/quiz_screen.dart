@@ -93,8 +93,10 @@ class _QuizScreenState extends ConsumerState<QuizScreen> {
       context.pushReplacement(
         '/kelas/ujian-unit/${quiz.quizId}/hasil',
         extra: {
-          'score': result.score,
+          'scorePercent': result.score,
+          'correctCount': result.correctCount,
           'total': result.totalCount,
+          'xpEarned': result.xpEarned,
           'passed': result.passed,
         },
       );

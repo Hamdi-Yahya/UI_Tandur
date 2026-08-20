@@ -5,17 +5,33 @@ import 'package:tandur/core/theme/app_spacing.dart';
 import 'package:tandur/core/theme/app_typography.dart';
 
 class FinalTestResultScreen extends StatefulWidget {
-  final int score;
+  /// Nilai persen 0-100 dari backend (field `score`), bukan jumlah benar.
+  final int scorePercent;
+
+  /// Jumlah jawaban benar (field `correctCount`).
+  final int correctCount;
+
+  /// Jumlah soal (field `totalCount`).
   final int total;
+
+  /// XP yang benar-benar diberikan backend (field `xpEarned`).
+  final int xpEarned;
+
+  /// Bintang petak yang diraih (0-3).
+  final int stars;
+
   final String id;
   final bool passed;
 
   const FinalTestResultScreen({
-    super.key, 
+    super.key,
     required this.id,
-    required this.score,
+    required this.scorePercent,
+    required this.correctCount,
     required this.total,
     required this.passed,
+    this.xpEarned = 0,
+    this.stars = 0,
   });
 
   @override
@@ -123,11 +139,34 @@ class _FinalTestResultScreenState extends State<FinalTestResultScreen> with Sing
                 textAlign: TextAlign.center,
                 style: AppTypography.isiBesar.copyWith(color: AppColors.tanahLemah),
               ),
-              
+              const SizedBox(height: AppSpacing.m),
+
+              Text(
+                'Skor ${widget.scorePercent}% — ${widget.correctCount} dari '
+                '${widget.total} soal benar.',
+                textAlign: TextAlign.center,
+                style: AppTypography.isi.copyWith(color: AppColors.tanahSamar),
+              ),
+
+              if (widget.stars > 0) ...[
+                const SizedBox(height: AppSpacing.m),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      Icon(
+                        i < widget.stars ? Icons.star : Icons.star_border,
+                        color: AppColors.padi,
+                        size: 28,
+                      ),
+                  ],
+                ),
+              ],
+
               const SizedBox(height: AppSpacing.xxl),
-              
-              // XP Reward
-              if (widget.passed)
+
+              // XP: nilainya datang dari backend, jangan dikeraskan di UI.
+              if (widget.xpEarned > 0)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.s),
                   decoration: BoxDecoration(
@@ -141,7 +180,7 @@ class _FinalTestResultScreenState extends State<FinalTestResultScreen> with Sing
                       const Text('⚡', style: TextStyle(fontSize: 20)),
                       const SizedBox(width: AppSpacing.xs),
                       Text(
-                        '+150 XP',
+                        '+${widget.xpEarned} XP',
                         style: AppTypography.isiTebal.copyWith(color: AppColors.padi),
                       ),
                     ],
