@@ -39,24 +39,58 @@ import 'package:tandur/features/saya/presentation/screens/notifikasi_screen.dart
 import 'package:tandur/features/saya/presentation/screens/pengaturan_screen.dart';
 
 /// Router utama aplikasi Tandur (Riverpod provider).
-/// Redirect otomatis: user yang sudah login langsung ke /kelas,
-/// tidak perlu lewat onboarding lagi.
+/// Aturan navigasi:
+/// 1. Punya token (auth.isAuthenticated) -> '/kelas'
+/// 2. Tidak punya token, tapi pernah punya akun (auth.hasAccount) -> '/masuk'
+/// 3. Tidak punya token dan belum pernah punya akun -> '/onboarding'
 final appRouterProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authControllerProvider);
   return GoRouter(
-    initialLocation: auth.isAuthenticated ? '/kelas' : '/onboarding',
+    initialLocation: auth.isAuthenticated
+        ? '/kelas'
+        : (auth.hasAccount ? '/masuk' : '/onboarding'),
     redirect: (context, state) {
       final loc = state.matchedLocation;
 
-      // User sudah login → skip semua layar onboarding & auth
-      if (auth.isAuthenticated &&
-          (loc.startsWith('/onboarding') ||
-              loc == '/daftar' ||
-              loc == '/masuk')) {
-        return '/kelas';
+      // 1. Pengguna sudah login (punya token) -> skip semua layar onboarding & auth
+      if (auth.isAuthenticated) {
+        if (loc.startsWith('/onboarding') ||
+            loc == '/daftar' ||
+            loc == '/masuk' ||
+            loc == '/lupa-password' ||
+            loc == '/atur-ulang-password') {
+          return '/kelas';
+        }
+        return null;
       }
 
-      return null;
+      // 2. Pengguna belum login tapi pernah punya akun -> arahkan ke /masuk, jangan lemparkan ke onboarding
+      if (auth.hasAccount) {
+        if (loc.startsWith('/onboarding')) {
+          return '/masuk';
+        }
+        // Izinkan halaman autentikasi
+        if (loc == '/masuk' ||
+            loc == '/daftar' ||
+            loc == '/lupa-password' ||
+            loc == '/atur-ulang-password') {
+          return null;
+        }
+        // Jika mencoba mengakses rute terproteksi di dalam aplikasi tanpa login, arahkan ke /masuk
+        return '/masuk';
+      }
+
+      // 3. Pengguna baru (belum pernah punya akun) -> izinkan onboarding & auth
+      if (loc.startsWith('/onboarding') ||
+          loc == '/daftar' ||
+          loc == '/masuk' ||
+          loc == '/lupa-password' ||
+          loc == '/atur-ulang-password') {
+        return null;
+      }
+
+      // Akses ke rute dalam tanpa akun diarahkan ke perkenalan (onboarding)
+      return '/onboarding';
     },
     routes: [
       // =========== ONBOARDING ===========

@@ -42,20 +42,20 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
   XFile? _foto;
   int _tipIndex = 0;
   bool _isProcessing = false;
+  bool _isLoadingPlants = true;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _muatTanaman();
     _timer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (!mounted) return;
       setState(() => _tipIndex = (_tipIndex + 1) % _tips.length);
     });
-    // Langsung buka kamera saat layar dibuka
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ambilFoto(ImageSource.camera);
-    });
+    // Muat data tanaman terlebih dahulu sampai selesai sebelum membuka kamera.
+    // ALASAN: Menghindari race condition di mana kamera terbuka lebih dulu saat
+    // data tanaman masih dimuat (null), yang memicu tuduhan keliru "Daftarkan tanaman dulu".
+    _muatTanamanDanBukaKamera();
   }
 
   @override
@@ -64,17 +64,43 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
     super.dispose();
   }
 
-  Future<void> _muatTanaman() async {
+  /// Memuat daftar tanaman pengguna secara sekuensial sebelum memicu kamera.
+  /// ALASAN: Jika pemuatan gagal (galat jaringan), tampilkan galat tersebut apa adanya
+  /// tanpa melempar pengguna ke halaman pendaftaran tanaman. Peringatan pendaftaran hanya
+  /// boleh muncul jika pemuatan berhasil dan daftar tanaman memang kosong.
+  Future<void> _muatTanamanDanBukaKamera() async {
+    setState(() => _isLoadingPlants = true);
     try {
       final plants = await ref.read(periksaRepositoryProvider).getPlants();
       if (!mounted) return;
       setState(() {
         _plants = plants;
-        _selectedPlant ??= plants.isEmpty ? null : plants.first;
+        _selectedPlant = plants.isEmpty ? null : plants.first;
+        _isLoadingPlants = false;
       });
+
+      // Peringatan hanya boleh muncul jika pemuatan selesai dan daftar benar-benar kosong.
+      if (plants.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Daftarkan tanaman dulu sebelum memeriksa.')),
+        );
+        context.push('/periksa/tanaman');
+        return;
+      }
+
+      // Buka kamera hanya setelah pemuatan tanaman selesai dan tanaman tersedia
+      await _ambilFoto(ImageSource.camera);
     } on ApiException catch (e) {
       if (!mounted) return;
+      setState(() => _isLoadingPlants = false);
+      // Tampilkan galat jaringan apa adanya, jangan menuduh pengguna belum punya tanaman.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingPlants = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gagal memuat data tanaman. Periksa koneksi internet.')),
+      );
     }
   }
 
@@ -104,13 +130,17 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
   }
 
   Future<void> _ambilFoto(ImageSource source) async {
-    if (_isProcessing) return;
+    // Jangan lakukan aksi apa pun jika masih memproses foto atau sedang memuat tanaman
+    if (_isProcessing || _isLoadingPlants) return;
     final plant = _selectedPlant;
     if (plant == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Daftarkan tanaman dulu sebelum memeriksa.')),
-      );
-      context.push('/periksa/tanaman');
+      // Hanya tampilkan peringatan jika pemuatan telah selesai dan daftar memang kosong
+      if (_plants.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Daftarkan tanaman dulu sebelum memeriksa.')),
+        );
+        context.push('/periksa/tanaman');
+      }
       return;
     }
 
@@ -214,14 +244,14 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
                     tooltip: 'Tutup',
                   ),
                   InkWell(
-                    onTap: _plants.isEmpty ? null : _pilihTanaman,
+                    onTap: (_isLoadingPlants || _plants.isEmpty) ? null : _pilihTanaman,
                     borderRadius: BorderRadius.circular(AppRadius.penuh),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.m, vertical: AppSpacing.s),
                       child: Row(
                         children: [
                           Text(
-                            plant?.nickname ?? 'Pilih tanaman',
+                            plant?.nickname ?? (_isLoadingPlants ? 'Memuat tanaman...' : 'Pilih tanaman'),
                             style: AppTypography.isiTebal.copyWith(color: Colors.white),
                           ),
                           const Icon(Icons.arrow_drop_down, color: Colors.white),
@@ -271,7 +301,7 @@ class _KameraPeriksaScreenState extends ConsumerState<KameraPeriksaScreen> {
                         IgnorePointer(
                           child: CustomPaint(painter: _DashedFramePainter()),
                         ),
-                        if (_isProcessing)
+                        if (_isProcessing || _isLoadingPlants)
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.black45,

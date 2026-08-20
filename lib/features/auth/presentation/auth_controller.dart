@@ -11,6 +11,7 @@ class AuthState {
     this.roles = const [],
     this.isNewUser = false,
     this.isAuthenticated = false,
+    this.hasAccount = false,
     this.isLoading = false,
   });
 
@@ -19,6 +20,7 @@ class AuthState {
   final List<String> roles;
   final bool isNewUser;
   final bool isAuthenticated;
+  final bool hasAccount;
   final bool isLoading;
 
   bool get isAdmin => roles.contains('ADMIN');
@@ -30,6 +32,7 @@ class AuthState {
     List<String>? roles,
     bool? isNewUser,
     bool? isAuthenticated,
+    bool? hasAccount,
     bool? isLoading,
   }) {
     return AuthState(
@@ -38,6 +41,7 @@ class AuthState {
       roles: roles ?? this.roles,
       isNewUser: isNewUser ?? this.isNewUser,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      hasAccount: hasAccount ?? this.hasAccount,
       isLoading: isLoading ?? this.isLoading,
     );
   }
@@ -74,6 +78,7 @@ class AuthController extends Notifier<AuthState> {
         roles: session.roles,
         isNewUser: session.isNewUser,
         isAuthenticated: true,
+        hasAccount: true,
       );
     } finally {
       state = state.copyWith(isLoading: false);
@@ -94,6 +99,7 @@ class AuthController extends Notifier<AuthState> {
         roles: session.roles,
         isNewUser: session.isNewUser,
         isAuthenticated: true,
+        hasAccount: true,
       );
     } finally {
       state = state.copyWith(isLoading: false);
@@ -111,6 +117,7 @@ class AuthController extends Notifier<AuthState> {
         roles: session.roles,
         isNewUser: session.isNewUser,
         isAuthenticated: true,
+        hasAccount: true,
       );
     } finally {
       state = state.copyWith(isLoading: false);
@@ -119,7 +126,9 @@ class AuthController extends Notifier<AuthState> {
 
   Future<void> signout() async {
     await ref.read(authRepositoryProvider).logout();
-    state = AuthState.empty;
+    // Setelah keluar akun, pengguna tetap ditandai pernah memiliki akun (hasAccount: true)
+    // agar diarahkan ke layar /masuk saat membuka aplikasi lagi, bukan mengulang perkenalan.
+    state = const AuthState(hasAccount: true);
   }
 
   /// Pulihkan sesi saat aplikasi dibuka (token masih tersimpan).
@@ -127,8 +136,11 @@ class AuthController extends Notifier<AuthState> {
     final storage = ref.read(secureTokenStoreProvider);
     final access = await storage.accessToken();
     final refresh = await storage.refreshToken();
+    final hasAcc = await storage.hasAccount();
+    final isAuth = access != null && refresh != null;
     state = AuthState(
-      isAuthenticated: access != null && refresh != null,
+      isAuthenticated: isAuth,
+      hasAccount: hasAcc || isAuth, // Jika punya token aktif, pasti pernah punya akun
       isLoading: false,
     );
   }
