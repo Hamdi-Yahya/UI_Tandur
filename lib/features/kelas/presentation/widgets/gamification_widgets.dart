@@ -15,7 +15,7 @@ class XpIndicator extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('💎', style: TextStyle(fontSize: 16)),
+        const Text('⚡', style: TextStyle(fontSize: 16)),
         const SizedBox(width: AppSpacing.xs),
         Text(
           xp.toString(),
@@ -37,7 +37,7 @@ class StreakIndicator extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('⚡', style: TextStyle(fontSize: 16)),
+        const Text('🔥', style: TextStyle(fontSize: 16)),
         const SizedBox(width: AppSpacing.xs),
         Text(
           streak.toString(),
